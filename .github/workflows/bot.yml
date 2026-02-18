@@ -1,0 +1,19 @@
+name: Light Bot
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Python
+        run: pip install requests
+
+      - name: Run bot
+        run: python bot.py
