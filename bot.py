@@ -1,28 +1,31 @@
-import hashlib
 import os
-from datetime import datetime
+import hashlib
+import time
 import requests
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-import time
+from selenium.webdriver.common.keys import Keys
 
 TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
 CHAT_ID = "-1003856095678"
 
-GROUP = "1.2"
+CITY = "Богуслав"
+STREET = "Росьова"
+HOUSE = "70"
 
 STATE_FILE = "state.txt"
+IMAGE_FILE = "schedule.png"
 
 URL = "https://www.dtek-krem.com.ua/ua/shutdowns"
 
 
-def get_schedule():
+def take_screenshot():
 
     options = Options()
 
-    options.add_argument("--headless")
+    options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
 
@@ -32,48 +35,31 @@ def get_schedule():
 
     time.sleep(5)
 
-    body = driver.find_element(By.TAG_NAME, "body").text
+    inputs = driver.find_elements(By.TAG_NAME, "input")
+
+    inputs[0].send_keys(CITY)
+    time.sleep(1)
+
+    inputs[1].send_keys(STREET)
+    time.sleep(1)
+
+    inputs[2].send_keys(HOUSE)
+    time.sleep(1)
+
+    inputs[2].send_keys(Keys.ENTER)
+
+    time.sleep(5)
+
+    driver.save_screenshot(IMAGE_FILE)
 
     driver.quit()
 
-    lines = body.split("\n")
 
-    result = []
+def get_hash():
 
-    now = datetime.now().strftime("%H:%M")
+    with open(IMAGE_FILE, "rb") as f:
 
-    power_off = False
-
-    for line in lines:
-
-        if GROUP in line and "-" in line:
-
-            result.append(line)
-
-            parts = line.split()
-
-            for part in parts:
-
-                if "-" in part:
-
-                    start, end = part.split("-")
-
-                    if start <= now <= end:
-
-                        power_off = True
-
-    return result, power_off
-
-
-def send(text):
-
-    requests.post(
-        f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-        data={
-            "chat_id": CHAT_ID,
-            "text": text
-        }
-    )
+        return hashlib.md5(f.read()).hexdigest()
 
 
 def load_state():
@@ -95,34 +81,35 @@ def save_state(state):
     os.system("git push")
 
 
-schedule, power_off = get_schedule()
+def send_photo():
 
-text = "\n".join(schedule)
+    url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
 
-status = "🔴 Зараз світла НЕМАЄ" if power_off else "🟢 Зараз світло Є"
+    with open(IMAGE_FILE, "rb") as photo:
 
-full = status + text
+        requests.post(
+            url,
+            data={"chat_id": CHAT_ID},
+            files={"photo": photo}
+        )
 
-new_hash = hashlib.md5(full.encode()).hexdigest()
+
+# main
+
+take_screenshot()
+
+new_hash = get_hash()
 
 old_hash = load_state()
 
 if old_hash is None:
 
-    send(
-        f"✅ Бот запущено\n\n"
-        f"{status}\n\n"
-        f"{text}"
-    )
+    send_photo()
 
     save_state(new_hash)
 
 elif new_hash != old_hash:
 
-    send(
-        f"⚡ Оновлення\n\n"
-        f"{status}\n\n"
-        f"{text}"
-    )
+    send_photo()
 
     save_state(new_hash)
