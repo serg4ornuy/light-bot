@@ -1,7 +1,6 @@
 import requests
 import hashlib
 import os
-import re
 from datetime import datetime
 
 TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
@@ -11,41 +10,66 @@ GROUP = "1.2"
 
 STATE_FILE = "state.txt"
 
-URL = "https://www.dtek-krem.com.ua/ua/shutdowns"
+# реальний JSON файл графіка (стабільний)
+JSON_URL = "https://www.dtek-krem.com.ua/uploads/schedule/schedule.json"
 
 
-def get_page():
+def get_schedule():
 
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
+    try:
 
-    r = requests.get(URL, headers=headers, timeout=30)
+        r = requests.get(JSON_URL, timeout=30)
 
-    return r.text
+        return r.json()
+
+    except Exception as e:
+
+        print(e)
+        return None
 
 
-def extract_schedule(page):
-
-    pattern = rf"{GROUP}.*?(\d{{2}}:\d{{2}}).*?(\d{{2}}:\d{{2}})"
-
-    matches = re.findall(pattern, page)
-
-    result = []
-
-    power_off_now = False
+def extract_group(data):
 
     now = datetime.now().strftime("%H:%M")
 
-    for start, end in matches:
+    result = []
 
-        result.append(f"{start}-{end}")
+    power_off = False
 
-        if start <= now <= end:
+    today = datetime.now().strftime("%Y-%m-%d")
 
-            power_off_now = True
+    try:
 
-    return result, power_off_now
+        days = data.get("days", [])
+
+        for day in days:
+
+            if day.get("date") != today:
+                continue
+
+            groups = day.get("groups", {})
+
+            if GROUP not in groups:
+                continue
+
+            periods = groups[GROUP]
+
+            for period in periods:
+
+                start = period["start"]
+                end = period["end"]
+
+                result.append(f"{start}-{end}")
+
+                if start <= now <= end:
+
+                    power_off = True
+
+    except Exception as e:
+
+        print(e)
+
+    return result, power_off
 
 
 def send(text):
@@ -70,11 +94,11 @@ def load_state():
         return f.read()
 
 
-def save_state(hash_value):
+def save_state(state):
 
     with open(STATE_FILE, "w") as f:
 
-        f.write(hash_value)
+        f.write(state)
 
     os.system("git add state.txt")
     os.system("git commit -m state_update")
@@ -83,22 +107,21 @@ def save_state(hash_value):
 
 # main
 
-page = get_page()
+data = get_schedule()
 
-schedule, power_off = extract_schedule(page)
+if not data:
 
-if not schedule:
+    exit()
 
-    schedule_text = "Немає даних"
-else:
+schedule, power_off = extract_group(data)
 
-    schedule_text = "\n".join(schedule)
+schedule_text = "\n".join(schedule) if schedule else "Немає відключень"
 
 status = "🔴 Зараз світла НЕМАЄ" if power_off else "🟢 Зараз світло Є"
 
-full_text = status + "\n" + schedule_text
+full = status + "\n" + schedule_text
 
-new_hash = hashlib.md5(full_text.encode()).hexdigest()
+new_hash = hashlib.md5(full.encode()).hexdigest()
 
 old_hash = load_state()
 
@@ -106,30 +129,24 @@ old_hash = load_state()
 # перший запуск
 if old_hash is None:
 
-    message = (
+    send(
         f"✅ Бот запущено\n\n"
         f"{status}\n\n"
         f"👥 Група {GROUP}\n\n"
-        f"{schedule_text}\n\n"
-        f"{datetime.now().strftime('%H:%M')}"
+        f"{schedule_text}"
     )
-
-    send(message)
 
     save_state(new_hash)
 
 
-# якщо зміни
+# зміни
 elif new_hash != old_hash:
 
-    message = (
+    send(
         f"⚡ Оновлення\n\n"
         f"{status}\n\n"
         f"👥 Група {GROUP}\n\n"
-        f"{schedule_text}\n\n"
-        f"{datetime.now().strftime('%H:%M')}"
+        f"{schedule_text}"
     )
-
-    send(message)
 
     save_state(new_hash)
