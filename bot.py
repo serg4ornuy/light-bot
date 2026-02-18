@@ -1,89 +1,62 @@
-import os
-import hashlib
-import time
 import requests
-
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+import hashlib
+import os
 
 TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
 CHAT_ID = "-1003856095678"
 
 STATE_FILE = "state.txt"
-IMAGE_FILE = "schedule.png"
 
-URL = "https://www.dtek-krem.com.ua/ua/shutdowns"
+URLS = [
+    "https://www.dtek-krem.com.ua/assets/data/shutdowns/week.json",
+    "https://www.dtek-krem.com.ua/assets/json/shutdowns.json"
+]
 
 
-def take_screenshot():
+def get_json():
 
-    options = Options()
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
+    for url in URLS:
 
-    driver = webdriver.Chrome(options=options)
-    wait = WebDriverWait(driver, 60)
+        try:
 
-    driver.get(URL)
+            r = requests.get(url, timeout=30)
 
-    time.sleep(3)
+            if r.status_code == 200 and len(r.text) > 100:
 
-    # закрити popup якщо є
-    try:
+                return r.text
 
-        close_button = wait.until(
-            EC.element_to_be_clickable(
-                (By.XPATH, "//button[contains(@class,'close')] | //button[contains(text(),'×')]")
-            )
-        )
+        except:
+            pass
 
-        close_button.click()
+    return None
 
-        time.sleep(2)
 
-    except:
-        pass
+def send(text):
 
-    # чекати таблицю
-    table = wait.until(
-        EC.presence_of_element_located((By.XPATH, "//table"))
+    requests.post(
+        f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+        data={
+            "chat_id": CHAT_ID,
+            "text": text[:4000]
+        }
     )
-
-    # прокрутити до таблиці
-    driver.execute_script(
-        "arguments[0].scrollIntoView(true);", table
-    )
-
-    time.sleep(2)
-
-    # screenshot тільки таблиці
-    table.screenshot(IMAGE_FILE)
-
-    driver.quit()
-
-
-def get_hash():
-
-    with open(IMAGE_FILE, "rb") as f:
-        return hashlib.md5(f.read()).hexdigest()
 
 
 def load_state():
 
     if not os.path.exists(STATE_FILE):
+
         return None
 
     with open(STATE_FILE) as f:
+
         return f.read()
 
 
 def save_state(state):
 
     with open(STATE_FILE, "w") as f:
+
         f.write(state)
 
     os.system("git add state.txt")
@@ -91,32 +64,24 @@ def save_state(state):
     os.system("git push")
 
 
-def send_photo():
+data = get_json()
 
-    url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
+if not data:
 
-    with open(IMAGE_FILE, "rb") as photo:
-
-        requests.post(
-            url,
-            data={"chat_id": CHAT_ID},
-            files={"photo": photo}
-        )
+    send("ПОМИЛКА: не вдалося отримати графік")
+    exit()
 
 
-# main
+new_hash = hashlib.md5(data.encode()).hexdigest()
 
-take_screenshot()
-
-new_hash = get_hash()
 old_hash = load_state()
 
 if old_hash is None:
 
-    send_photo()
+    send("✅ Бот запущено\nГрафік отримано")
     save_state(new_hash)
 
 elif new_hash != old_hash:
 
-    send_photo()
+    send("⚡ Графік оновлено")
     save_state(new_hash)
