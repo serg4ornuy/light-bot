@@ -1,98 +1,85 @@
-import os
-import hashlib
-import time
 import requests
-
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+import hashlib
+import os
 
 TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
 CHAT_ID = "-1003856095678"
 
-CITY = "Богуслав"
-STREET = "Росьова"
-HOUSE = "70"
-
 STATE_FILE = "state.txt"
-IMAGE_FILE = "schedule.png"
 
-URL = "https://www.dtek-krem.com.ua/ua/shutdowns"
+URL = "https://www.dtek-krem.com.ua/api/shutdowns/search"
+
+payload = {
+    "city": "Богуслав",
+    "street": "Росьова",
+    "house": "70"
+}
 
 
-def take_screenshot():
+def get_schedule():
 
-    options = Options()
-
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-
-    driver = webdriver.Chrome(options=options)
-
-    wait = WebDriverWait(driver, 20)
-
-    driver.get(URL)
-
-    time.sleep(3)
-
-    # Закрити popup якщо є
     try:
 
-        close_button = wait.until(
-            EC.element_to_be_clickable((By.XPATH, "//button"))
-        )
+        r = requests.post(URL, json=payload, timeout=30)
 
-        close_button.click()
+        return r.json()
 
-        time.sleep(2)
+    except Exception as e:
 
-    except:
-        pass
+        return {"error": str(e)}
 
-    # знайти input поля
-    inputs = wait.until(
-        EC.presence_of_all_elements_located((By.TAG_NAME, "input"))
+
+def format_text(data):
+
+    if "error" in data:
+
+        return "ПОМИЛКА API: " + data["error"]
+
+    if "data" not in data:
+
+        return "Графік не знайдено"
+
+    result = []
+
+    for item in data["data"]:
+
+        date = item.get("date")
+
+        for period in item.get("periods", []):
+
+            result.append(
+                f"{date} {period['start']}-{period['end']}"
+            )
+
+    return "\n".join(result)
+
+
+def send(text):
+
+    requests.post(
+        f"https://api.telegram.org/bot{TOKEN}/sendMessage",
+        data={
+            "chat_id": CHAT_ID,
+            "text": text
+        }
     )
-
-    # ввод адреси через JS (надійніше)
-    driver.execute_script("""
-        arguments[0].value = arguments[1];
-        arguments[2].value = arguments[3];
-        arguments[4].value = arguments[5];
-    """,
-        inputs[0], CITY,
-        inputs[1], STREET,
-        inputs[2], HOUSE
-    )
-
-    time.sleep(5)
-
-    driver.save_screenshot(IMAGE_FILE)
-
-    driver.quit()
-
-
-def get_hash():
-
-    with open(IMAGE_FILE, "rb") as f:
-        return hashlib.md5(f.read()).hexdigest()
 
 
 def load_state():
 
     if not os.path.exists(STATE_FILE):
+
         return None
 
     with open(STATE_FILE) as f:
+
         return f.read()
 
 
 def save_state(state):
 
     with open(STATE_FILE, "w") as f:
+
         f.write(state)
 
     os.system("git add state.txt")
@@ -100,33 +87,20 @@ def save_state(state):
     os.system("git push")
 
 
-def send_photo():
+data = get_schedule()
 
-    url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
+text = format_text(data)
 
-    with open(IMAGE_FILE, "rb") as photo:
-
-        requests.post(
-            url,
-            data={"chat_id": CHAT_ID},
-            files={"photo": photo}
-        )
-
-
-# main
-
-take_screenshot()
-
-new_hash = get_hash()
+new_hash = hashlib.md5(text.encode()).hexdigest()
 
 old_hash = load_state()
 
 if old_hash is None:
 
-    send_photo()
+    send("✅ Бот запущено\n\n" + text)
     save_state(new_hash)
 
 elif new_hash != old_hash:
 
-    send_photo()
+    send("⚡ Оновлення\n\n" + text)
     save_state(new_hash)
