@@ -10,20 +10,17 @@ GROUP = "1.2"
 
 STATE_FILE = "state.txt"
 
-API_URL = "https://www.dtek-krem.com.ua/api/shutdowns/by-group"
+# реальний файл графіка (використовується frontend)
+URL = "https://www.dtek-krem.com.ua/assets/json/schedule.json"
 
 
-def get_schedule():
+def get_json():
 
     try:
 
-        r = requests.post(
-            API_URL,
-            json={"group": GROUP},
-            timeout=30
-        )
+        r = requests.get(URL, timeout=30)
 
-        print(r.text)
+        print("Status:", r.status_code)
 
         return r.json()
 
@@ -35,28 +32,32 @@ def get_schedule():
 
 def parse(data):
 
-    now = datetime.now()
-    now_str = now.strftime("%H:%M")
+    today = datetime.now().strftime("%Y-%m-%d")
+    now = datetime.now().strftime("%H:%M")
 
     result = []
-
     power_off = False
 
     try:
 
-        for item in data["data"]:
+        for day in data:
 
-            date = item["date"]
+            if day["date"] != today:
+                continue
 
-            for period in item["periods"]:
+            groups = day["groups"]
 
-                start = period["start"]
-                end = period["end"]
+            if GROUP not in groups:
+                continue
 
-                result.append(f"{date} {start}-{end}")
+            for period in groups[GROUP]:
 
-                if start <= now_str <= end:
+                start = period["from"]
+                end = period["to"]
 
+                result.append(f"{start}-{end}")
+
+                if start <= now <= end:
                     power_off = True
 
     except Exception as e:
@@ -80,18 +81,15 @@ def send(text):
 def load_state():
 
     if not os.path.exists(STATE_FILE):
-
         return None
 
     with open(STATE_FILE) as f:
-
         return f.read()
 
 
 def save_state(state):
 
     with open(STATE_FILE, "w") as f:
-
         f.write(state)
 
     os.system("git add state.txt")
@@ -101,11 +99,11 @@ def save_state(state):
 
 # main
 
-data = get_schedule()
+data = get_json()
 
 if not data:
 
-    send("ПОМИЛКА: API не повернув дані")
+    send("ПОМИЛКА: не отримано JSON графіка")
     exit()
 
 schedule, power_off = parse(data)
@@ -119,7 +117,6 @@ full = status + "\n" + schedule_text
 new_hash = hashlib.md5(full.encode()).hexdigest()
 
 old_hash = load_state()
-
 
 if old_hash is None:
 
