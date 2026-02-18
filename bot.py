@@ -1,28 +1,51 @@
 import requests
 import hashlib
 import os
-import time
 
 TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
 CHAT_ID = "-1003856095678"
 
 STATE_FILE = "state.txt"
 
-# використовуємо RSS новин DTEK як тригер
-URL = "https://www.dtek-krem.com.ua/ua/shutdowns"
+CITY = "Богуслав"
+STREET = "Росьова"
+HOUSE = "70"
 
 
-def get_page():
+session = requests.Session()
 
-    try:
 
-        r = requests.get(URL, timeout=30)
+def get_address_id():
 
-        return r.text
+    url = "https://www.dtek-krem.com.ua/api/location/search"
 
-    except:
+    params = {
+        "q": f"{CITY} {STREET} {HOUSE}"
+    }
 
+    r = session.get(url, params=params, timeout=30)
+
+    if r.status_code != 200:
         return None
+
+    data = r.json()
+
+    if not data:
+        return None
+
+    return data[0]["id"]
+
+
+def get_schedule(address_id):
+
+    url = f"https://www.dtek-krem.com.ua/api/shutdowns/address/{address_id}"
+
+    r = session.get(url, timeout=30)
+
+    if r.status_code != 200:
+        return None
+
+    return r.text
 
 
 def send(text):
@@ -31,7 +54,7 @@ def send(text):
         f"https://api.telegram.org/bot{TOKEN}/sendMessage",
         data={
             "chat_id": CHAT_ID,
-            "text": text
+            "text": text[:4000]
         }
     )
 
@@ -55,26 +78,32 @@ def save_state(state):
     os.system("git push")
 
 
-data = get_page()
+address_id = get_address_id()
 
-if not data:
+if not address_id:
 
-    send("ПОМИЛКА: сайт недоступний")
+    send("ПОМИЛКА: адресу не знайдено")
     exit()
 
 
-new_hash = hashlib.md5(data.encode()).hexdigest()
+schedule = get_schedule(address_id)
+
+if not schedule:
+
+    send("ПОМИЛКА: графік не отримано")
+    exit()
+
+
+new_hash = hashlib.md5(schedule.encode()).hexdigest()
 
 old_hash = load_state()
 
 if old_hash is None:
 
-    send("✅ Бот запущено і підключено до DTEK")
+    send("✅ Бот запущено\nГрафік отримано")
     save_state(new_hash)
 
 elif new_hash != old_hash:
 
-    send("⚡ DTEK оновив графік. Перевір:")
-    send(URL)
-
+    send("⚡ Графік змінено")
     save_state(new_hash)
