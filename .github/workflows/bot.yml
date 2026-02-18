@@ -20,6 +20,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      - run: pip install requests
+      - uses: browser-actions/setup-chrome@v1
+
+      - uses: nanasess/setup-chromedriver@v2
+
+      - run: pip install selenium requests
 
       - run: python bot.py
