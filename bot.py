@@ -1,57 +1,56 @@
-import requests
-import hashlib
 import os
+import hashlib
+import time
+import requests
+
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 
 TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
 CHAT_ID = "-1003856095678"
 
 STATE_FILE = "state.txt"
 
-URL = "https://www.dtek-krem.com.ua/api/shutdowns/search"
+CITY = "Богуслав"
+STREET = "Росьова"
+HOUSE = "70"
 
-payload = {
-    "city": "Богуслав",
-    "street": "Росьова",
-    "house": "70"
-}
+URL = "https://www.dtek-krem.com.ua/ua/shutdowns"
 
 
-def get_schedule():
+def get_data():
 
-    try:
+    options = Options()
 
-        r = requests.post(URL, json=payload, timeout=30)
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
 
-        return r.json()
+    driver = webdriver.Chrome(options=options)
 
-    except Exception as e:
+    driver.get(URL)
 
-        return {"error": str(e)}
+    time.sleep(5)
 
+    # виконати JS як браузер
+    result = driver.execute_script(f"""
+        return fetch('/api/shutdowns/search', {{
+            method: 'POST',
+            headers: {{
+                'Content-Type': 'application/json'
+            }},
+            body: JSON.stringify({{
+                city: '{CITY}',
+                street: '{STREET}',
+                house: '{HOUSE}'
+            }})
+        }})
+        .then(r => r.text())
+    """)
 
-def format_text(data):
+    driver.quit()
 
-    if "error" in data:
-
-        return "ПОМИЛКА API: " + data["error"]
-
-    if "data" not in data:
-
-        return "Графік не знайдено"
-
-    result = []
-
-    for item in data["data"]:
-
-        date = item.get("date")
-
-        for period in item.get("periods", []):
-
-            result.append(
-                f"{date} {period['start']}-{period['end']}"
-            )
-
-    return "\n".join(result)
+    return result
 
 
 def send(text):
@@ -87,20 +86,22 @@ def save_state(state):
     os.system("git push")
 
 
-data = get_schedule()
+data = get_data()
 
-text = format_text(data)
+if not data:
 
-new_hash = hashlib.md5(text.encode()).hexdigest()
+    data = "ПОМИЛКА: API не повернув дані"
+
+new_hash = hashlib.md5(data.encode()).hexdigest()
 
 old_hash = load_state()
 
 if old_hash is None:
 
-    send("✅ Бот запущено\n\n" + text)
+    send("✅ Бот запущено\n\n" + data)
     save_state(new_hash)
 
 elif new_hash != old_hash:
 
-    send("⚡ Оновлення\n\n" + text)
+    send("⚡ Оновлення\n\n" + data)
     save_state(new_hash)
