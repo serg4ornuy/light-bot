@@ -5,80 +5,69 @@ import requests
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
 CHAT_ID = "-1003856095678"
 
 STATE_FILE = "state.txt"
-
-CITY = "Богуслав"
-STREET = "Росьова"
-HOUSE = "70"
+IMAGE_FILE = "schedule.png"
 
 URL = "https://www.dtek-krem.com.ua/ua/shutdowns"
 
 
-def get_data():
+def take_screenshot():
 
     options = Options()
-
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
 
     driver = webdriver.Chrome(options=options)
+    wait = WebDriverWait(driver, 60)
 
     driver.get(URL)
 
-    time.sleep(5)
+    # чекати появи таблиці графіка
+    table = wait.until(
+        EC.presence_of_element_located(
+            (By.XPATH, "//table")
+        )
+    )
 
-    # виконати JS як браузер
-    result = driver.execute_script(f"""
-        return fetch('/api/shutdowns/search', {{
-            method: 'POST',
-            headers: {{
-                'Content-Type': 'application/json'
-            }},
-            body: JSON.stringify({{
-                city: '{CITY}',
-                street: '{STREET}',
-                house: '{HOUSE}'
-            }})
-        }})
-        .then(r => r.text())
-    """)
+    # прокрутити до таблиці
+    driver.execute_script(
+        "arguments[0].scrollIntoView(true);", table
+    )
+
+    time.sleep(3)
+
+    # screenshot тільки таблиці (не всієї сторінки)
+    table.screenshot(IMAGE_FILE)
 
     driver.quit()
 
-    return result
 
+def get_hash():
 
-def send(text):
-
-    requests.post(
-        f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-        data={
-            "chat_id": CHAT_ID,
-            "text": text
-        }
-    )
+    with open(IMAGE_FILE, "rb") as f:
+        return hashlib.md5(f.read()).hexdigest()
 
 
 def load_state():
 
     if not os.path.exists(STATE_FILE):
-
         return None
 
     with open(STATE_FILE) as f:
-
         return f.read()
 
 
 def save_state(state):
 
     with open(STATE_FILE, "w") as f:
-
         f.write(state)
 
     os.system("git add state.txt")
@@ -86,22 +75,32 @@ def save_state(state):
     os.system("git push")
 
 
-data = get_data()
+def send_photo():
 
-if not data:
+    url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
 
-    data = "ПОМИЛКА: API не повернув дані"
+    with open(IMAGE_FILE, "rb") as photo:
 
-new_hash = hashlib.md5(data.encode()).hexdigest()
+        requests.post(
+            url,
+            data={"chat_id": CHAT_ID},
+            files={"photo": photo}
+        )
 
+
+# main
+
+take_screenshot()
+
+new_hash = get_hash()
 old_hash = load_state()
 
 if old_hash is None:
 
-    send("✅ Бот запущено\n\n" + data)
+    send_photo()
     save_state(new_hash)
 
 elif new_hash != old_hash:
 
-    send("⚡ Оновлення\n\n" + data)
+    send_photo()
     save_state(new_hash)
