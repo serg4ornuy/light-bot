@@ -5,18 +5,9 @@ import requests
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 
 TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
 CHAT_ID = "-1003856095678"
-
-CITY = "Богуслав"
-STREET = "Росьова"
-HOUSE = "70"
 
 STATE_FILE = "state.txt"
 IMAGE_FILE = "schedule.png"
@@ -34,38 +25,20 @@ def take_screenshot():
 
     driver = webdriver.Chrome(options=options)
 
-    wait = WebDriverWait(driver, 20)
-
     driver.get(URL)
-
-    # чекати поки поля з'являться
-    inputs = wait.until(
-        EC.presence_of_all_elements_located((By.TAG_NAME, "input"))
-    )
-
-    # місто
-    inputs[0].click()
-    inputs[0].send_keys(CITY)
-    time.sleep(2)
-    inputs[0].send_keys(Keys.DOWN)
-    inputs[0].send_keys(Keys.ENTER)
-
-    # вулиця
-    inputs[1].click()
-    inputs[1].send_keys(STREET)
-    time.sleep(2)
-    inputs[1].send_keys(Keys.DOWN)
-    inputs[1].send_keys(Keys.ENTER)
-
-    # будинок
-    inputs[2].click()
-    inputs[2].send_keys(HOUSE)
-    time.sleep(2)
-    inputs[2].send_keys(Keys.DOWN)
-    inputs[2].send_keys(Keys.ENTER)
 
     time.sleep(5)
 
+    # встановлюємо адресу через JS
+    driver.execute_script("""
+        document.querySelectorAll('input')[0].value = 'Богуслав';
+        document.querySelectorAll('input')[1].value = 'Росьова';
+        document.querySelectorAll('input')[2].value = '70';
+    """)
+
+    time.sleep(3)
+
+    # screenshot
     driver.save_screenshot(IMAGE_FILE)
 
     driver.quit()
