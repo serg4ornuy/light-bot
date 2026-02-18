@@ -5,6 +5,7 @@ import requests
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 
@@ -29,7 +30,9 @@ def take_screenshot():
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
 
-    driver = webdriver.Chrome(options=options)
+    service = Service()
+
+    driver = webdriver.Chrome(service=service, options=options)
 
     driver.get(URL)
 
@@ -94,8 +97,6 @@ def send_photo():
         )
 
 
-# main
-
 take_screenshot()
 
 new_hash = get_hash()
@@ -105,11 +106,9 @@ old_hash = load_state()
 if old_hash is None:
 
     send_photo()
-
     save_state(new_hash)
 
 elif new_hash != old_hash:
 
     send_photo()
-
     save_state(new_hash)
