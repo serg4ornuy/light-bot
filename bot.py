@@ -8,6 +8,8 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
 CHAT_ID = "-1003856095678"
@@ -30,25 +32,36 @@ def take_screenshot():
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
 
-    service = Service()
+    driver = webdriver.Chrome(options=options)
 
-    driver = webdriver.Chrome(service=service, options=options)
+    wait = WebDriverWait(driver, 20)
 
     driver.get(URL)
 
-    time.sleep(5)
+    # чекати поки поля з'являться
+    inputs = wait.until(
+        EC.presence_of_all_elements_located((By.TAG_NAME, "input"))
+    )
 
-    inputs = driver.find_elements(By.TAG_NAME, "input")
-
+    # місто
+    inputs[0].click()
     inputs[0].send_keys(CITY)
-    time.sleep(1)
+    time.sleep(2)
+    inputs[0].send_keys(Keys.DOWN)
+    inputs[0].send_keys(Keys.ENTER)
 
+    # вулиця
+    inputs[1].click()
     inputs[1].send_keys(STREET)
-    time.sleep(1)
+    time.sleep(2)
+    inputs[1].send_keys(Keys.DOWN)
+    inputs[1].send_keys(Keys.ENTER)
 
+    # будинок
+    inputs[2].click()
     inputs[2].send_keys(HOUSE)
-    time.sleep(1)
-
+    time.sleep(2)
+    inputs[2].send_keys(Keys.DOWN)
     inputs[2].send_keys(Keys.ENTER)
 
     time.sleep(5)
@@ -61,7 +74,6 @@ def take_screenshot():
 def get_hash():
 
     with open(IMAGE_FILE, "rb") as f:
-
         return hashlib.md5(f.read()).hexdigest()
 
 
@@ -96,6 +108,8 @@ def send_photo():
             files={"photo": photo}
         )
 
+
+# main
 
 take_screenshot()
 
