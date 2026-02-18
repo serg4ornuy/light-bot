@@ -10,6 +10,8 @@ API_URL = "https://www.dtek-krem.com.ua/api/shutdowns"
 
 GROUP = "1.2"
 
+STATE_FILE = "state.txt"
+
 
 def get_data():
     try:
@@ -23,11 +25,9 @@ def parse_schedule(data):
 
     result = []
     now = datetime.now()
-
     power_off_now = False
 
     try:
-
         schedules = data.get("data", [])
 
         for day in schedules:
@@ -41,9 +41,7 @@ def parse_schedule(data):
                     start_str = outage.get("start")
                     end_str = outage.get("end")
 
-                    result.append(
-                        f"{date}  {start_str} - {end_str}"
-                    )
+                    result.append(f"{date} {start_str}-{end_str}")
 
                     start = datetime.strptime(
                         f"{date} {start_str}",
@@ -64,10 +62,6 @@ def parse_schedule(data):
     return result, power_off_now
 
 
-def get_hash(text):
-    return hashlib.md5(text.encode()).hexdigest()
-
-
 def send(text):
 
     requests.post(
@@ -78,6 +72,30 @@ def send(text):
         }
     )
 
+
+def save_state(hash_value):
+
+    with open(STATE_FILE, "w") as f:
+        f.write(hash_value)
+
+    os.system("git config user.name github-actions")
+    os.system("git config user.email github-actions@github.com")
+
+    os.system("git add state.txt")
+    os.system("git commit -m update_state")
+    os.system("git push")
+
+
+def load_state():
+
+    if not os.path.exists(STATE_FILE):
+        return None
+
+    with open(STATE_FILE, "r") as f:
+        return f.read()
+
+
+# main
 
 data = get_data()
 
@@ -91,36 +109,38 @@ if not schedule:
 
 schedule_text = "\n".join(schedule)
 
-if power_off:
-    status = "🔴 Зараз світла НЕМАЄ"
-else:
-    status = "🟢 Зараз світло Є"
+status = "🔴 Зараз світла НЕМАЄ" if power_off else "🟢 Зараз світло Є"
 
-full_text = status + "\n\n" + schedule_text
+full_text = status + "\n" + schedule_text
 
-new_hash = get_hash(full_text)
+new_hash = hashlib.md5(full_text.encode()).hexdigest()
 
-if os.path.exists("last.txt"):
+old_hash = load_state()
 
-    with open("last.txt", "r") as f:
-        old_hash = f.read()
-
-else:
-
-    old_hash = ""
-
-
-if new_hash != old_hash:
+# перший запуск
+if old_hash is None:
 
     message = (
         f"{status}\n\n"
-        f"👥 Група: {GROUP}\n\n"
-        f"📅 Графік:\n"
+        f"👥 Група {GROUP}\n\n"
         f"{schedule_text}\n\n"
-        f"Оновлено: {datetime.now().strftime('%H:%M')}"
+        f"Перший запуск\n"
+        f"{datetime.now().strftime('%H:%M')}"
     )
 
     send(message)
+    save_state(new_hash)
 
-    with open("last.txt", "w") as f:
-        f.write(new_hash)
+# якщо змінилось
+elif new_hash != old_hash:
+
+    message = (
+        f"{status}\n\n"
+        f"👥 Група {GROUP}\n\n"
+        f"{schedule_text}\n\n"
+        f"Оновлено\n"
+        f"{datetime.now().strftime('%H:%M')}"
+    )
+
+    send(message)
+    save_state(new_hash)
