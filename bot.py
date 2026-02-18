@@ -1,34 +1,28 @@
 import requests
 import hashlib
 import os
+import time
 
 TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
 CHAT_ID = "-1003856095678"
 
 STATE_FILE = "state.txt"
 
-URLS = [
-    "https://www.dtek-krem.com.ua/assets/data/shutdowns/week.json",
-    "https://www.dtek-krem.com.ua/assets/json/shutdowns.json"
-]
+# використовуємо RSS новин DTEK як тригер
+URL = "https://www.dtek-krem.com.ua/ua/shutdowns"
 
 
-def get_json():
+def get_page():
 
-    for url in URLS:
+    try:
 
-        try:
+        r = requests.get(URL, timeout=30)
 
-            r = requests.get(url, timeout=30)
+        return r.text
 
-            if r.status_code == 200 and len(r.text) > 100:
+    except:
 
-                return r.text
-
-        except:
-            pass
-
-    return None
+        return None
 
 
 def send(text):
@@ -37,7 +31,7 @@ def send(text):
         f"https://api.telegram.org/bot{TOKEN}/sendMessage",
         data={
             "chat_id": CHAT_ID,
-            "text": text[:4000]
+            "text": text
         }
     )
 
@@ -45,18 +39,15 @@ def send(text):
 def load_state():
 
     if not os.path.exists(STATE_FILE):
-
         return None
 
     with open(STATE_FILE) as f:
-
         return f.read()
 
 
 def save_state(state):
 
     with open(STATE_FILE, "w") as f:
-
         f.write(state)
 
     os.system("git add state.txt")
@@ -64,11 +55,11 @@ def save_state(state):
     os.system("git push")
 
 
-data = get_json()
+data = get_page()
 
 if not data:
 
-    send("ПОМИЛКА: не вдалося отримати графік")
+    send("ПОМИЛКА: сайт недоступний")
     exit()
 
 
@@ -78,10 +69,12 @@ old_hash = load_state()
 
 if old_hash is None:
 
-    send("✅ Бот запущено\nГрафік отримано")
+    send("✅ Бот запущено і підключено до DTEK")
     save_state(new_hash)
 
 elif new_hash != old_hash:
 
-    send("⚡ Графік оновлено")
+    send("⚡ DTEK оновив графік. Перевір:")
+    send(URL)
+
     save_state(new_hash)
