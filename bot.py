@@ -1,7 +1,12 @@
-import requests
 import hashlib
 import os
 from datetime import datetime
+import requests
+
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+import time
 
 TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
 CHAT_ID = "-1003856095678"
@@ -10,59 +15,52 @@ GROUP = "1.2"
 
 STATE_FILE = "state.txt"
 
-# реальний файл графіка (використовується frontend)
-URL = "https://www.dtek-krem.com.ua/assets/json/schedule.json"
+URL = "https://www.dtek-krem.com.ua/ua/shutdowns"
 
 
-def get_json():
+def get_schedule():
 
-    try:
+    options = Options()
 
-        r = requests.get(URL, timeout=30)
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
 
-        print("Status:", r.status_code)
+    driver = webdriver.Chrome(options=options)
 
-        return r.json()
+    driver.get(URL)
 
-    except Exception as e:
+    time.sleep(5)
 
-        print(e)
-        return None
+    body = driver.find_element(By.TAG_NAME, "body").text
 
+    driver.quit()
 
-def parse(data):
-
-    today = datetime.now().strftime("%Y-%m-%d")
-    now = datetime.now().strftime("%H:%M")
+    lines = body.split("\n")
 
     result = []
+
+    now = datetime.now().strftime("%H:%M")
+
     power_off = False
 
-    try:
+    for line in lines:
 
-        for day in data:
+        if GROUP in line and "-" in line:
 
-            if day["date"] != today:
-                continue
+            result.append(line)
 
-            groups = day["groups"]
+            parts = line.split()
 
-            if GROUP not in groups:
-                continue
+            for part in parts:
 
-            for period in groups[GROUP]:
+                if "-" in part:
 
-                start = period["from"]
-                end = period["to"]
+                    start, end = part.split("-")
 
-                result.append(f"{start}-{end}")
+                    if start <= now <= end:
 
-                if start <= now <= end:
-                    power_off = True
-
-    except Exception as e:
-
-        print(e)
+                        power_off = True
 
     return result, power_off
 
@@ -93,26 +91,17 @@ def save_state(state):
         f.write(state)
 
     os.system("git add state.txt")
-    os.system("git commit -m state_update")
+    os.system("git commit -m update")
     os.system("git push")
 
 
-# main
+schedule, power_off = get_schedule()
 
-data = get_json()
-
-if not data:
-
-    send("ПОМИЛКА: не отримано JSON графіка")
-    exit()
-
-schedule, power_off = parse(data)
-
-schedule_text = "\n".join(schedule) if schedule else "Немає відключень"
+text = "\n".join(schedule)
 
 status = "🔴 Зараз світла НЕМАЄ" if power_off else "🟢 Зараз світло Є"
 
-full = status + "\n" + schedule_text
+full = status + text
 
 new_hash = hashlib.md5(full.encode()).hexdigest()
 
@@ -123,8 +112,7 @@ if old_hash is None:
     send(
         f"✅ Бот запущено\n\n"
         f"{status}\n\n"
-        f"Група {GROUP}\n\n"
-        f"{schedule_text}"
+        f"{text}"
     )
 
     save_state(new_hash)
@@ -134,8 +122,7 @@ elif new_hash != old_hash:
     send(
         f"⚡ Оновлення\n\n"
         f"{status}\n\n"
-        f"Група {GROUP}\n\n"
-        f"{schedule_text}"
+        f"{text}"
     )
 
     save_state(new_hash)
