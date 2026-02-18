@@ -1,6 +1,7 @@
 import requests
 import hashlib
 import os
+import re
 from datetime import datetime
 
 TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
@@ -10,41 +11,41 @@ GROUP = "1.2"
 
 STATE_FILE = "state.txt"
 
-# цей endpoint реально працює
 URL = "https://www.dtek-krem.com.ua/ua/shutdowns"
 
 
 def get_page():
 
-    try:
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
 
-        headers = {
-            "User-Agent": "Mozilla/5.0"
-        }
+    r = requests.get(URL, headers=headers, timeout=30)
 
-        r = requests.get(URL, headers=headers, timeout=30)
-
-        return r.text
-
-    except Exception as e:
-
-        print(e)
-        return None
+    return r.text
 
 
-def extract_group(page):
+def extract_schedule(page):
 
-    lines = page.split("\n")
+    pattern = rf"{GROUP}.*?(\d{{2}}:\d{{2}}).*?(\d{{2}}:\d{{2}})"
+
+    matches = re.findall(pattern, page)
 
     result = []
 
-    for line in lines:
+    power_off_now = False
 
-        if GROUP in line and ":" in line:
+    now = datetime.now().strftime("%H:%M")
 
-            result.append(line.strip())
+    for start, end in matches:
 
-    return result
+        result.append(f"{start}-{end}")
+
+        if start <= now <= end:
+
+            power_off_now = True
+
+    return result, power_off_now
 
 
 def send(text):
@@ -75,11 +76,8 @@ def save_state(hash_value):
 
         f.write(hash_value)
 
-    os.system("git config --global user.name github-actions")
-    os.system("git config --global user.email github-actions@github.com")
-
     os.system("git add state.txt")
-    os.system("git commit -m update_state")
+    os.system("git commit -m state_update")
     os.system("git push")
 
 
@@ -87,19 +85,20 @@ def save_state(hash_value):
 
 page = get_page()
 
-if not page:
+schedule, power_off = extract_schedule(page)
 
-    exit()
+if not schedule:
 
-data = extract_group(page)
+    schedule_text = "Немає даних"
+else:
 
-text = "\n".join(data)
+    schedule_text = "\n".join(schedule)
 
-if not text:
+status = "🔴 Зараз світла НЕМАЄ" if power_off else "🟢 Зараз світло Є"
 
-    text = "Графік знайдено, але група 1.2 не знайдена"
+full_text = status + "\n" + schedule_text
 
-new_hash = hashlib.md5(text.encode()).hexdigest()
+new_hash = hashlib.md5(full_text.encode()).hexdigest()
 
 old_hash = load_state()
 
@@ -107,12 +106,15 @@ old_hash = load_state()
 # перший запуск
 if old_hash is None:
 
-    send(
+    message = (
         f"✅ Бот запущено\n\n"
-        f"Група {GROUP}\n\n"
-        f"{text}\n\n"
+        f"{status}\n\n"
+        f"👥 Група {GROUP}\n\n"
+        f"{schedule_text}\n\n"
         f"{datetime.now().strftime('%H:%M')}"
     )
+
+    send(message)
 
     save_state(new_hash)
 
@@ -120,11 +122,14 @@ if old_hash is None:
 # якщо зміни
 elif new_hash != old_hash:
 
-    send(
+    message = (
         f"⚡ Оновлення\n\n"
-        f"Група {GROUP}\n\n"
-        f"{text}\n\n"
+        f"{status}\n\n"
+        f"👥 Група {GROUP}\n\n"
+        f"{schedule_text}\n\n"
         f"{datetime.now().strftime('%H:%M')}"
     )
+
+    send(message)
 
     save_state(new_hash)
