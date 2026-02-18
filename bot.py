@@ -1,31 +1,75 @@
 import requests
 import hashlib
 import os
+from datetime import datetime
 
 TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
 CHAT_ID = "-1003856095678"
 
 API_URL = "https://www.dtek-krem.com.ua/api/shutdowns"
 
-
-payload = {
-    "address": "Богуслав, Росьова 70"
-}
+GROUP = "1.2"
 
 
-def get_schedule():
+def get_data():
     try:
-        r = requests.post(API_URL, json=payload, timeout=30)
-        return r.text
+        r = requests.get(API_URL, timeout=30)
+        return r.json()
     except:
-        return ""
+        return None
+
+
+def parse_schedule(data):
+
+    result = []
+    now = datetime.now()
+
+    power_off_now = False
+
+    try:
+
+        schedules = data.get("data", [])
+
+        for day in schedules:
+
+            date = day.get("date")
+
+            for outage in day.get("shutdowns", []):
+
+                if outage.get("group") == GROUP:
+
+                    start_str = outage.get("start")
+                    end_str = outage.get("end")
+
+                    result.append(
+                        f"{date}  {start_str} - {end_str}"
+                    )
+
+                    start = datetime.strptime(
+                        f"{date} {start_str}",
+                        "%Y-%m-%d %H:%M"
+                    )
+
+                    end = datetime.strptime(
+                        f"{date} {end_str}",
+                        "%Y-%m-%d %H:%M"
+                    )
+
+                    if start <= now <= end:
+                        power_off_now = True
+
+    except:
+        pass
+
+    return result, power_off_now
 
 
 def get_hash(text):
     return hashlib.md5(text.encode()).hexdigest()
 
 
-def send_message(text):
+def send(text):
+
     requests.post(
         f"https://api.telegram.org/bot{TOKEN}/sendMessage",
         data={
@@ -35,27 +79,48 @@ def send_message(text):
     )
 
 
-data = get_schedule()
+data = get_data()
 
 if not data:
     exit()
 
-new_hash = get_hash(data)
+schedule, power_off = parse_schedule(data)
 
-if os.path.exists("last_hash.txt"):
-    with open("last_hash.txt", "r") as f:
-        old_hash = f.read()
+if not schedule:
+    exit()
+
+schedule_text = "\n".join(schedule)
+
+if power_off:
+    status = "🔴 Зараз світла НЕМАЄ"
 else:
+    status = "🟢 Зараз світло Є"
+
+full_text = status + "\n\n" + schedule_text
+
+new_hash = get_hash(full_text)
+
+if os.path.exists("last.txt"):
+
+    with open("last.txt", "r") as f:
+        old_hash = f.read()
+
+else:
+
     old_hash = ""
+
 
 if new_hash != old_hash:
 
-    send_message(
-        "⚡ Оновлення графіка відключення\n"
-        "📍 Богуслав, Росьова 70\n\n"
-        "Перевірити:\n"
-        "https://www.dtek-krem.com.ua/ua/shutdowns"
+    message = (
+        f"{status}\n\n"
+        f"👥 Група: {GROUP}\n\n"
+        f"📅 Графік:\n"
+        f"{schedule_text}\n\n"
+        f"Оновлено: {datetime.now().strftime('%H:%M')}"
     )
 
-    with open("last_hash.txt", "w") as f:
+    send(message)
+
+    with open("last.txt", "w") as f:
         f.write(new_hash)
