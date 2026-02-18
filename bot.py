@@ -1,61 +1,48 @@
-import requests
+import asyncio
 import hashlib
 import os
+import requests
 
-TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
-CHAT_ID = "-1003856095678"
+from playwright.async_api import async_playwright
+
+TOKEN = "ТВОЙ_TOKEN"
+CHAT_ID = "ТВОЙ_CHAT_ID"
 
 STATE_FILE = "state.txt"
 
-CITY = "Богуслав"
-STREET = "Росьова"
-HOUSE = "70"
+URL = "https://www.dtek-krem.com.ua/ua/shutdowns"
 
 
-session = requests.Session()
+async def get_schedule():
 
+    async with async_playwright() as p:
 
-def get_address_id():
+        browser = await p.chromium.launch()
 
-    url = "https://www.dtek-krem.com.ua/api/location/search"
+        page = await browser.new_page()
 
-    params = {
-        "q": f"{CITY} {STREET} {HOUSE}"
-    }
+        await page.goto(URL)
 
-    r = session.get(url, params=params, timeout=30)
+        # чекати popup і закрити
+        try:
+            await page.click("button:has-text('×')", timeout=5000)
+        except:
+            pass
 
-    if r.status_code != 200:
-        return None
+        await page.wait_for_selector("table")
 
-    data = r.json()
+        content = await page.locator("table").inner_text()
 
-    if not data:
-        return None
+        await browser.close()
 
-    return data[0]["id"]
-
-
-def get_schedule(address_id):
-
-    url = f"https://www.dtek-krem.com.ua/api/shutdowns/address/{address_id}"
-
-    r = session.get(url, timeout=30)
-
-    if r.status_code != 200:
-        return None
-
-    return r.text
+        return content
 
 
 def send(text):
 
     requests.post(
         f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-        data={
-            "chat_id": CHAT_ID,
-            "text": text[:4000]
-        }
+        data={"chat_id": CHAT_ID, "text": text}
     )
 
 
@@ -64,35 +51,15 @@ def load_state():
     if not os.path.exists(STATE_FILE):
         return None
 
-    with open(STATE_FILE) as f:
-        return f.read()
+    return open(STATE_FILE).read()
 
 
 def save_state(state):
 
-    with open(STATE_FILE, "w") as f:
-        f.write(state)
-
-    os.system("git add state.txt")
-    os.system("git commit -m update")
-    os.system("git push")
+    open(STATE_FILE, "w").write(state)
 
 
-address_id = get_address_id()
-
-if not address_id:
-
-    send("ПОМИЛКА: адресу не знайдено")
-    exit()
-
-
-schedule = get_schedule(address_id)
-
-if not schedule:
-
-    send("ПОМИЛКА: графік не отримано")
-    exit()
-
+schedule = asyncio.run(get_schedule())
 
 new_hash = hashlib.md5(schedule.encode()).hexdigest()
 
@@ -100,10 +67,12 @@ old_hash = load_state()
 
 if old_hash is None:
 
-    send("✅ Бот запущено\nГрафік отримано")
+    send("Бот запущено\n\n" + schedule)
+
     save_state(new_hash)
 
 elif new_hash != old_hash:
 
-    send("⚡ Графік змінено")
+    send("Графік змінено\n\n" + schedule)
+
     save_state(new_hash)
