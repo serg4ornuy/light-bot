@@ -5,9 +5,16 @@ import requests
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
 CHAT_ID = "-1003856095678"
+
+CITY = "Богуслав"
+STREET = "Росьова"
+HOUSE = "70"
 
 STATE_FILE = "state.txt"
 IMAGE_FILE = "schedule.png"
@@ -25,20 +32,44 @@ def take_screenshot():
 
     driver = webdriver.Chrome(options=options)
 
+    wait = WebDriverWait(driver, 20)
+
     driver.get(URL)
-
-    time.sleep(5)
-
-    # встановлюємо адресу через JS
-    driver.execute_script("""
-        document.querySelectorAll('input')[0].value = 'Богуслав';
-        document.querySelectorAll('input')[1].value = 'Росьова';
-        document.querySelectorAll('input')[2].value = '70';
-    """)
 
     time.sleep(3)
 
-    # screenshot
+    # Закрити popup якщо є
+    try:
+
+        close_button = wait.until(
+            EC.element_to_be_clickable((By.XPATH, "//button"))
+        )
+
+        close_button.click()
+
+        time.sleep(2)
+
+    except:
+        pass
+
+    # знайти input поля
+    inputs = wait.until(
+        EC.presence_of_all_elements_located((By.TAG_NAME, "input"))
+    )
+
+    # ввод адреси через JS (надійніше)
+    driver.execute_script("""
+        arguments[0].value = arguments[1];
+        arguments[2].value = arguments[3];
+        arguments[4].value = arguments[5];
+    """,
+        inputs[0], CITY,
+        inputs[1], STREET,
+        inputs[2], HOUSE
+    )
+
+    time.sleep(5)
+
     driver.save_screenshot(IMAGE_FILE)
 
     driver.quit()
