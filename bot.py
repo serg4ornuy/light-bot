@@ -5,12 +5,17 @@ import os
 TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
 CHAT_ID = "-1003856095678"
 
-URL = "https://www.dtek-krem.com.ua/ua/shutdowns"
+API_URL = "https://www.dtek-krem.com.ua/api/shutdowns"
 
 
-def get_page():
+payload = {
+    "address": "Богуслав, Росьова 70"
+}
+
+
+def get_schedule():
     try:
-        r = requests.get(URL, timeout=30)
+        r = requests.post(API_URL, json=payload, timeout=30)
         return r.text
     except:
         return ""
@@ -30,12 +35,12 @@ def send_message(text):
     )
 
 
-page = get_page()
+data = get_schedule()
 
-if not page:
+if not data:
     exit()
 
-new_hash = get_hash(page)
+new_hash = get_hash(data)
 
 if os.path.exists("last_hash.txt"):
     with open("last_hash.txt", "r") as f:
@@ -44,7 +49,13 @@ else:
     old_hash = ""
 
 if new_hash != old_hash:
-    send_message("⚡ Графік відключень оновлено\nhttps://www.dtek-krem.com.ua/ua/shutdowns")
+
+    send_message(
+        "⚡ Оновлення графіка відключення\n"
+        "📍 Богуслав, Росьова 70\n\n"
+        "Перевірити:\n"
+        "https://www.dtek-krem.com.ua/ua/shutdowns"
+    )
 
     with open("last_hash.txt", "w") as f:
         f.write(new_hash)
