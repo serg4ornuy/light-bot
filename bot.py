@@ -45,35 +45,38 @@ def save_state(s):
     open(STATE_FILE, "w").write(s)
 
 
-# ================= READ GRAPH =================
+# ================= MERGE INTERVALS =================
 
-def read_graph(path):
+def merge(minutes):
 
-    try:
+    if not minutes:
+        return []
 
-        img = Image.open(path).convert("L")
+    minutes = sorted(minutes)
 
-        arr = np.array(img)
+    result = []
 
-        h, w = arr.shape
+    start = minutes[0]
+    prev = minutes[0]
 
-        left = int(w * 0.15)
-        right = int(w * 0.95)
+    for m in minutes[1:]:
 
-        today_y = int(h * 0.30)
-        tomorrow_y = int(h * 0.38)
+        if m == prev + 30:
+            prev = m
+        else:
+            result.append((start, prev+30))
+            start = m
+            prev = m
 
-        today = read_day(arr, today_y, left, right)
-        tomorrow = read_day(arr, tomorrow_y, left, right)
+    result.append((start, prev+30))
 
-        return today, tomorrow
+    return [
+        f"{s//60:02}:{s%60:02}–{e//60:02}:{e%60:02}"
+        for s,e in result
+    ]
 
-    except Exception as e:
 
-        print("READ ERROR:", e)
-
-        return [], []
-
+# ================= READ DAY =================
 
 def read_day(arr, y, left, right):
 
@@ -102,36 +105,54 @@ def read_day(arr, y, left, right):
     return merge(off)
 
 
-def merge(minutes):
+# ================= READ GRAPH =================
 
-    if not minutes:
-        return []
+def read_graph(path):
 
-    minutes = sorted(minutes)
+    img = Image.open(path).convert("L")
 
-    result = []
+    arr = np.array(img)
 
-    start = minutes[0]
-    prev = minutes[0]
+    h, w = arr.shape
 
-    for m in minutes[1:]:
+    left = int(w * 0.15)
+    right = int(w * 0.95)
 
-        if m == prev + 30:
-            prev = m
-        else:
-            result.append((start, prev + 30))
-            start = m
-            prev = m
+    today_y = None
+    tomorrow_y = None
 
-    result.append((start, prev + 30))
+    for y in range(int(h*0.2), int(h*0.5)):
 
-    return [
-        f"{s//60:02}:{s%60:02}–{e//60:02}:{e%60:02}"
-        for s,e in result
-    ]
+        line = arr[y, left:right]
+
+        dark_pixels = np.sum(line < 150)
+
+        if dark_pixels > (right-left) * 0.1:
+
+            if today_y is None:
+                today_y = y
+            elif tomorrow_y is None and abs(y - today_y) > 20:
+                tomorrow_y = y
+                break
+
+    today = []
+    tomorrow = []
+
+    if today_y:
+        today = read_day(arr, today_y, left, right)
+
+    if tomorrow_y:
+        tomorrow = read_day(arr, tomorrow_y, left, right)
+
+    print("TODAY_Y:", today_y)
+    print("TOMORROW_Y:", tomorrow_y)
+    print("TODAY:", today)
+    print("TOMORROW:", tomorrow)
+
+    return today, tomorrow
 
 
-# ================= CAPTION =================
+# ================= BUILD CAPTION =================
 
 def build_caption(path):
 
@@ -266,7 +287,6 @@ async def main():
 
     print("HASH:", new_hash)
 
-    # ВІДПРАВЛЯЄМО ЗАВЖДИ ЯКЩО НЕМАЄ STATE
     if old_hash is None:
 
         print("FIRST RUN")
