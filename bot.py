@@ -13,7 +13,7 @@ from PIL import Image
 from telethon import TelegramClient
 
 
-# CONFIG
+# ================= CONFIG =================
 
 api_id = 37132117
 api_hash = "03e024f62a62ecd99bda067e6a2d1824"
@@ -28,17 +28,17 @@ QUEUE = "1.2"
 STATE_FILE = "state.txt"
 
 
-# TIME
+# ================= TIME =================
 
 def now_kyiv():
     return datetime.now(ZoneInfo("Europe/Kyiv"))
 
 
-# EXTRACT GRAPH DATE
+# ================= EXTRACT DATE =================
 
 def extract_graph_date(text):
 
-    match = re.search(r'(\d{2}\.\d{2}\.\d{2024})', text)
+    match = re.search(r'(\d{2}\.\d{2}\.\d{4})', text)
 
     if match:
         return datetime.strptime(match.group(1), "%d.%m.%Y")
@@ -46,62 +46,115 @@ def extract_graph_date(text):
     return now_kyiv()
 
 
-# READ BLOCKS (48 blocks of 30 min)
+# ================= FIND COLUMN BOUNDARIES =================
 
-def read_row_blocks(arr, y, width):
+def find_columns(arr):
 
-    blocks = 48
+    h, w = arr.shape
 
-    block_width = width / blocks
+    y = int(h * 0.32)
 
-    result = []
+    row = arr[y]
 
-    state = False
-    start_block = None
+    # знайти світлі вертикальні лінії (роздільники)
+    light = row > 200
 
-    for i in range(blocks):
+    edges = []
 
-        x1 = int(i * block_width)
-        x2 = int((i + 1) * block_width)
+    in_line = False
 
-        segment = arr[y, x1:x2]
+    for x in range(w):
 
-        avg = segment.mean()
+        if light[x] and not in_line:
+            start = x
+            in_line = True
 
-        is_dark = avg < 140
+        elif not light[x] and in_line:
+            end = x
+            edges.append((start + end) // 2)
+            in_line = False
 
-        if is_dark and not state:
+    # знайти великі інтервали між лініями
+    columns = []
 
-            start_block = i
-            state = True
+    for i in range(len(edges)-1):
 
-        elif not is_dark and state:
+        left = edges[i]
+        right = edges[i+1]
 
-            result.append((start_block, i))
-            state = False
+        if right - left > 10:
+            columns.append((left, right))
 
-    if state:
-        result.append((start_block, blocks))
+    # має бути 24
+    if len(columns) >= 24:
+        return columns[:24]
+
+    return columns
+
+
+# ================= READ ONE DAY =================
+
+def read_day(arr, y, columns):
+
+    off_minutes = []
+
+    for hour, (left, right) in enumerate(columns):
+
+        mid = (left + right) // 2
+
+        left_block = arr[y-5:y+5, left:mid]
+        right_block = arr[y-5:y+5, mid:right]
+
+        if left_block.mean() < 180:
+            off_minutes.append(hour * 60)
+
+        if right_block.mean() < 180:
+            off_minutes.append(hour * 60 + 30)
+
+    return merge_minutes(off_minutes)
+
+
+# ================= MERGE =================
+
+def merge_minutes(minutes):
+
+    if not minutes:
+        return []
+
+    minutes = sorted(minutes)
 
     intervals = []
 
-    for start, end in result:
+    start = minutes[0]
+    prev = minutes[0]
 
-        start_minutes = start * 30
-        end_minutes = end * 30
+    for m in minutes[1:]:
 
-        sh = start_minutes // 60
-        sm = start_minutes % 60
+        if m == prev + 30:
+            prev = m
+        else:
+            intervals.append((start, prev + 30))
+            start = m
+            prev = m
 
-        eh = end_minutes // 60
-        em = end_minutes % 60
+    intervals.append((start, prev + 30))
 
-        intervals.append(f"{sh:02}:{sm:02}–{eh:02}:{em:02}")
+    result = []
 
-    return intervals
+    for s, e in intervals:
+
+        sh = s // 60
+        sm = s % 60
+
+        eh = e // 60
+        em = e % 60
+
+        result.append(f"{sh:02}:{sm:02}–{eh:02}:{em:02}")
+
+    return result
 
 
-# READ SCHEDULE
+# ================= READ SCHEDULE =================
 
 def read_schedule(path):
 
@@ -109,26 +162,32 @@ def read_schedule(path):
 
     arr = np.array(img)
 
-    h, w = arr.shape
+    columns = find_columns(arr)
 
-    positions = [
-        int(h * 0.55),
-        int(h * 0.68)
-    ]
+    if len(columns) < 24:
+        return []
+
+    h = arr.shape[0]
+
+    today_y = int(h * 0.30)
+    tomorrow_y = int(h * 0.38)
 
     rows = []
 
-    for y in positions:
+    today = read_day(arr, today_y, columns)
 
-        intervals = read_row_blocks(arr, y, w)
+    if today:
+        rows.append(today)
 
-        if intervals:
-            rows.append(intervals)
+    tomorrow = read_day(arr, tomorrow_y, columns)
+
+    if tomorrow:
+        rows.append(tomorrow)
 
     return rows
 
 
-# CAPTION
+# ================= CAPTION =================
 
 def build_caption(path, graph_text):
 
@@ -138,31 +197,18 @@ def build_caption(path, graph_text):
 
     rows = read_schedule(path)
 
-    caption = (
-        f"Черга {QUEUE}\n"
-        f"Оновлено: {now}\n"
-    )
+    caption = f"Черга {QUEUE}\nОновлено: {now}\n"
 
-    if len(rows) == 1:
+    if len(rows) >= 1:
 
-        date = graph_date.strftime("%d.%m.%Y")
-
-        caption += f"\n{date}:\n"
+        caption += f"\n{graph_date.strftime('%d.%m.%Y')}:\n"
 
         for i in rows[0]:
             caption += i + "\n"
 
-    elif len(rows) >= 2:
+    if len(rows) >= 2:
 
-        date1 = graph_date.strftime("%d.%m.%Y")
-        date2 = (graph_date + timedelta(days=1)).strftime("%d.%m.%Y")
-
-        caption += f"\n{date1}:\n"
-
-        for i in rows[0]:
-            caption += i + "\n"
-
-        caption += f"\n{date2}:\n"
+        caption += f"\n{(graph_date + timedelta(days=1)).strftime('%d.%m.%Y')}:\n"
 
         for i in rows[1]:
             caption += i + "\n"
@@ -170,7 +216,7 @@ def build_caption(path, graph_text):
     return caption
 
 
-# SEND PHOTO
+# ================= SEND =================
 
 def send_photo(path, graph_text):
 
@@ -190,7 +236,7 @@ def send_photo(path, graph_text):
         )
 
 
-# STATE
+# ================= STATE =================
 
 def load_state():
 
@@ -205,7 +251,7 @@ def save_state(state):
     open(STATE_FILE, "w").write(state)
 
 
-# GET GRAPH
+# ================= GET GRAPH =================
 
 async def get_graph():
 
@@ -259,7 +305,7 @@ async def get_graph():
     return file_path, graph_text
 
 
-# MAIN
+# ================= MAIN =================
 
 async def main():
 
@@ -275,13 +321,11 @@ async def main():
     if old_hash is None:
 
         send_photo(path, graph_text)
-
         save_state(new_hash)
 
     elif new_hash != old_hash:
 
         send_photo(path, graph_text)
-
         save_state(new_hash)
 
 
