@@ -39,37 +39,7 @@ def save_state(s):
     open(STATE_FILE, "w").write(s)
 
 
-# ================= FIND GRID LINES =================
-
-def find_vertical_lines(arr):
-
-    h, w = arr.shape
-
-    profile = np.sum(arr < 200, axis=0)
-
-    lines = []
-
-    in_line = False
-
-    for x in range(w):
-
-        if profile[x] > h * 0.05 and not in_line:
-
-            start = x
-            in_line = True
-
-        elif profile[x] <= h * 0.05 and in_line:
-
-            end = x
-
-            lines.append((start + end)//2)
-
-            in_line = False
-
-    return lines
-
-
-# ================= MERGE =================
+# ===== MERGE =====
 
 def merge(minutes):
 
@@ -100,32 +70,76 @@ def merge(minutes):
     ]
 
 
-# ================= READ DAY =================
+# ===== FIND DAY ROW =====
 
-def read_day(arr, y, lines):
+def find_day_row(arr):
 
-    off = []
+    h, w = arr.shape
 
-    for hour in range(min(24, len(lines)-1)):
+    for y in range(int(h*0.2), int(h*0.5)):
 
-        left = lines[hour]
-        right = lines[hour+1]
+        dark = np.sum(arr[y] < 140)
 
-        mid = (left + right)//2
+        if dark > w * 0.03:
+            return y
 
-        left_block = arr[y-4:y+4, left:mid]
-        right_block = arr[y-4:y+4, mid:right]
-
-        if left_block.mean() < 160:
-            off.append(hour * 60)
-
-        if right_block.mean() < 160:
-            off.append(hour * 60 + 30)
-
-    return merge(off)
+    return None
 
 
-# ================= READ GRAPH =================
+# ===== FIND BLOCKS =====
+
+def find_blocks(arr, y):
+
+    h, w = arr.shape
+
+    blocks = []
+
+    in_block = False
+
+    for x in range(w):
+
+        col = arr[y-3:y+3, x]
+
+        if col.mean() < 160:
+
+            if not in_block:
+                start = x
+                in_block = True
+
+        else:
+
+            if in_block:
+                end = x
+                center = (start + end)//2
+                blocks.append(center)
+                in_block = False
+
+    return blocks
+
+
+# ===== CONVERT BLOCKS TO TIME =====
+
+def blocks_to_time(blocks, width):
+
+    minutes = []
+
+    cell = width / 24
+
+    for x in blocks:
+
+        hour = int(x / cell)
+
+        offset = (x % cell)
+
+        if offset < cell/2:
+            minutes.append(hour*60)
+        else:
+            minutes.append(hour*60+30)
+
+    return merge(minutes)
+
+
+# ===== READ GRAPH =====
 
 def read_graph(path):
 
@@ -133,41 +147,22 @@ def read_graph(path):
 
     arr = np.array(img)
 
-    lines = find_vertical_lines(arr)
+    h, w = arr.shape
 
-    if len(lines) < 25:
-        print("LINES FOUND:", len(lines))
-        return [], []
+    today_y = find_day_row(arr)
 
-    today_y = None
-    tomorrow_y = None
+    tomorrow_y = today_y + int(h*0.07)
 
-    for y in range(arr.shape[0]):
+    today_blocks = find_blocks(arr, today_y)
+    tomorrow_blocks = find_blocks(arr, tomorrow_y)
 
-        dark = np.sum(arr[y] < 150)
-
-        if dark > arr.shape[1] * 0.05:
-
-            if today_y is None:
-                today_y = y
-
-            elif tomorrow_y is None and abs(y - today_y) > 20:
-                tomorrow_y = y
-                break
-
-    today = []
-    tomorrow = []
-
-    if today_y:
-        today = read_day(arr, today_y, lines)
-
-    if tomorrow_y:
-        tomorrow = read_day(arr, tomorrow_y, lines)
+    today = blocks_to_time(today_blocks, w)
+    tomorrow = blocks_to_time(tomorrow_blocks, w)
 
     return today, tomorrow
 
 
-# ================= BUILD TEXT =================
+# ===== BUILD TEXT =====
 
 def build_caption(path):
 
@@ -187,7 +182,7 @@ def build_caption(path):
     return text
 
 
-# ================= SEND =================
+# ===== SEND =====
 
 def send_photo(path):
 
@@ -207,7 +202,7 @@ def send_photo(path):
         )
 
 
-# ================= GET GRAPH =================
+# ===== GET GRAPH =====
 
 async def get_graph():
 
@@ -252,7 +247,7 @@ async def get_graph():
     return None
 
 
-# ================= MAIN =================
+# ===== MAIN =====
 
 async def main():
 
