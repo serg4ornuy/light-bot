@@ -23,46 +23,54 @@ async def get_schedule():
 
     bot = await client.get_entity(DTEK_BOT)
 
+    # start
     await client.send_message(bot, "/start")
     await asyncio.sleep(3)
 
-    msg = await client.get_messages(bot, limit=1)
-    await msg[0].click(text="Графік відключень")
+    # reply keyboard → просто відправити текст
+    await client.send_message(bot, "Графік відключень")
     await asyncio.sleep(3)
 
+    # inline кнопка "Наступний >"
     msg = await client.get_messages(bot, limit=1)
-    await msg[0].click(text="Наступний >")
+    if msg[0].buttons:
+        await msg[0].click(text="Наступний >")
+
     await asyncio.sleep(3)
 
+    # inline кнопка "Обрати"
     msg = await client.get_messages(bot, limit=1)
-    await msg[0].click(text="Обрати")
+    if msg[0].buttons:
+        await msg[0].click(text="Обрати")
+
     await asyncio.sleep(5)
 
-    msg = await client.get_messages(bot, limit=1)
+    # знайти повідомлення з фото
+    messages = await client.get_messages(bot, limit=5)
+
+    file_path = None
+
+    for m in messages:
+        if m.photo:
+            file_path = "schedule.jpg"
+            await m.download_media(file_path)
+            break
 
     await client.disconnect()
 
-    if msg[0].photo:
-
-        file_path = "schedule.jpg"
-
-        await msg[0].download_media(file_path)
-
-        return file_path
-
-    return None
+    return file_path
 
 
-def send_photo(file_path):
+def send_photo(path):
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
 
-    with open(file_path, "rb") as photo:
+    with open(path, "rb") as f:
 
         requests.post(
             url,
             data={"chat_id": CHAT_ID},
-            files={"photo": photo}
+            files={"photo": f}
         )
 
 
@@ -81,13 +89,12 @@ def save_state(state):
 
 async def main():
 
-    file_path = await get_schedule()
+    path = await get_schedule()
 
-    if not file_path:
+    if not path:
         return
 
-    with open(file_path, "rb") as f:
-        data = f.read()
+    data = open(path, "rb").read()
 
     new_hash = hashlib.md5(data).hexdigest()
 
@@ -95,12 +102,12 @@ async def main():
 
     if old_hash is None:
 
-        send_photo(file_path)
+        send_photo(path)
         save_state(new_hash)
 
     elif new_hash != old_hash:
 
-        send_photo(file_path)
+        send_photo(path)
         save_state(new_hash)
 
 
