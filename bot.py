@@ -12,7 +12,7 @@ from PIL import Image
 from telethon import TelegramClient
 
 
-# ================= CONFIG =================
+# CONFIG
 
 api_id = 37132117
 api_hash = "03e024f62a62ecd99bda067e6a2d1824"
@@ -27,13 +27,9 @@ QUEUE = "1.2"
 STATE_FILE = "state.txt"
 
 
-# ================= TIME =================
-
 def now():
     return datetime.now(ZoneInfo("Europe/Kyiv"))
 
-
-# ================= STATE =================
 
 def load_state():
     if not os.path.exists(STATE_FILE):
@@ -45,7 +41,7 @@ def save_state(s):
     open(STATE_FILE, "w").write(s)
 
 
-# ================= MERGE =================
+# ===== MERGE INTERVALS =====
 
 def merge(minutes):
 
@@ -76,7 +72,57 @@ def merge(minutes):
     ]
 
 
-# ================= READ DAY =================
+# ===== FIND TABLE =====
+
+def find_table_bounds(arr):
+
+    h, w = arr.shape
+
+    # вертикальний профіль
+    profile = np.sum(arr < 150, axis=0)
+
+    xs = np.where(profile > h * 0.01)[0]
+
+    if len(xs) == 0:
+        return None, None
+
+    left = xs[0]
+    right = xs[-1]
+
+    # знайти першу колонку точно
+    width = right - left
+    col = width // 24
+
+    left += col // 2
+    right -= col // 2
+
+    return left, right
+
+
+# ===== FIND ROWS =====
+
+def find_rows(arr, left, right):
+
+    today = None
+    tomorrow = None
+
+    for y in range(0, arr.shape[0]):
+
+        dark = np.sum(arr[y, left:right] < 150)
+
+        if dark > (right-left) * 0.15:
+
+            if today is None:
+                today = y
+
+            elif tomorrow is None and abs(y - today) > 20:
+                tomorrow = y
+                break
+
+    return today, tomorrow
+
+
+# ===== READ DAY =====
 
 def read_day(arr, y, left, right):
 
@@ -105,7 +151,7 @@ def read_day(arr, y, left, right):
     return merge(off)
 
 
-# ================= READ GRAPH =================
+# ===== READ GRAPH =====
 
 def read_graph(path):
 
@@ -113,47 +159,12 @@ def read_graph(path):
 
     arr = np.array(img)
 
-    h, w = arr.shape
+    left, right = find_table_bounds(arr)
 
-    # знайти таблицю по X
-    profile = np.sum(arr < 150, axis=0)
-
-    xs = np.where(profile > h * 0.02)[0]
-
-    if len(xs) == 0:
-
-        print("TABLE NOT FOUND")
-
+    if left is None:
         return [], []
 
-    left = xs[0]
-    right = xs[-1]
-
-    print("LEFT:", left)
-    print("RIGHT:", right)
-
-    # знайти рядки
-    today_y = None
-    tomorrow_y = None
-
-    for y in range(int(h*0.2), int(h*0.5)):
-
-        dark = np.sum(arr[y, left:right] < 150)
-
-        if dark > (right-left) * 0.1:
-
-            if today_y is None:
-
-                today_y = y
-
-            elif tomorrow_y is None and abs(y - today_y) > 20:
-
-                tomorrow_y = y
-
-                break
-
-    print("TODAY_Y:", today_y)
-    print("TOMORROW_Y:", tomorrow_y)
+    today_y, tomorrow_y = find_rows(arr, left, right)
 
     today = []
     tomorrow = []
@@ -164,13 +175,10 @@ def read_graph(path):
     if tomorrow_y:
         tomorrow = read_day(arr, tomorrow_y, left, right)
 
-    print("TODAY:", today)
-    print("TOMORROW:", tomorrow)
-
     return today, tomorrow
 
 
-# ================= CAPTION =================
+# ===== BUILD CAPTION =====
 
 def build_caption(path):
 
@@ -196,20 +204,17 @@ def build_caption(path):
     return text
 
 
-# ================= SEND =================
+# ===== SEND =====
 
 def send_photo(path):
 
     caption = build_caption(path)
 
-    print("SENDING...")
-    print(caption)
-
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
 
     with open(path, "rb") as f:
 
-        r = requests.post(
+        requests.post(
             url,
             data={
                 "chat_id": CHAT_ID,
@@ -218,15 +223,10 @@ def send_photo(path):
             files={"photo": f}
         )
 
-    print("STATUS:", r.status_code)
-    print(r.text)
 
-
-# ================= GET GRAPH =================
+# ===== GET GRAPH =====
 
 async def get_graph():
-
-    print("CONNECT")
 
     client = TelegramClient("session", api_id, api_hash)
 
@@ -234,20 +234,15 @@ async def get_graph():
 
     bot = await client.get_entity(DTEK_BOT)
 
-    print("OPEN MENU")
-
     await client.send_message(bot, "/start")
-
     await asyncio.sleep(2)
 
     await client.send_message(bot, "Графік відключень🕒")
-
     await asyncio.sleep(3)
 
     msg = await client.get_messages(bot, limit=1)
 
     if msg and msg[0].buttons:
-
         try:
             await msg[0].click(text="Наступний >")
         except:
@@ -258,7 +253,6 @@ async def get_graph():
     msg = await client.get_messages(bot, limit=1)
 
     if msg and msg[0].buttons:
-
         try:
             await msg[0].click(text="✅ Обрати")
         except:
@@ -276,44 +270,29 @@ async def get_graph():
 
             await m.download_media(path)
 
-            print("GRAPH SAVED")
-
             return path
-
-    print("GRAPH NOT FOUND")
 
     return None
 
 
-# ================= MAIN =================
+# ===== MAIN =====
 
 async def main():
-
-    print("START")
 
     path = await get_graph()
 
     if not path:
-
         return
 
     new_hash = hashlib.md5(open(path,"rb").read()).hexdigest()
 
     old_hash = load_state()
 
-    print("HASH:", new_hash)
-
-    if old_hash != new_hash:
+    if new_hash != old_hash:
 
         send_photo(path)
 
         save_state(new_hash)
 
-    else:
-
-        print("NO CHANGES")
-
-
-# ================= RUN =================
 
 asyncio.run(main())
