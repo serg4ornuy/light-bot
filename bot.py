@@ -12,15 +12,12 @@ from PIL import Image
 from telethon import TelegramClient
 
 
-# CONFIG
-
 api_id = 37132117
 api_hash = "03e024f62a62ecd99bda067e6a2d1824"
 
 BOT_TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
 CHAT_ID = "-1003856095678"
 
-# ВАЖЛИВО — тільки латиниця
 DTEK_BOT = "@DTEKKyivRegionElektromerezhiBot"
 
 QUEUE = "1.2"
@@ -42,22 +39,49 @@ def save_state(s):
     open(STATE_FILE, "w").write(s)
 
 
-# CROP COPY (не чіпає оригінал)
+# ================= CROP COPY =================
 
-def crop_graph(original_path):
+def crop_graph(original):
 
-    img = Image.open(original_path)
+    img = Image.open(original)
 
     cropped = img.crop((0, 0, 1014, 411))
 
-    crop_path = "graph_crop.jpg"
+    path = "graph_crop.jpg"
 
-    cropped.save(crop_path)
+    cropped.save(path)
 
-    return crop_path
+    return path
 
 
-# MERGE
+# ================= FIND LAST LINE =================
+
+def find_last_vertical_line(arr):
+
+    h, w = arr.shape
+
+    profile = np.sum((arr > 180) & (arr < 240), axis=0)
+
+    xs = np.where(profile > h * 0.3)[0]
+
+    return xs[-1]
+
+
+# ================= FIND DAY ROW =================
+
+def find_day_row(arr):
+
+    h, w = arr.shape
+
+    for y in range(int(h*0.3), int(h*0.7)):
+
+        if np.sum(arr[y] < 140) > w * 0.05:
+            return y
+
+    return None
+
+
+# ================= MERGE =================
 
 def merge(minutes):
 
@@ -88,39 +112,20 @@ def merge(minutes):
     ]
 
 
-# FIND DAY ROW
+# ================= READ DAY =================
 
-def find_day_row(arr):
+def read_day(arr, y, last_line):
 
-    h, w = arr.shape
+    cell_width = 30  # стабільна ширина клітинки після crop
 
-    for y in range(int(h*0.3), int(h*0.7)):
-
-        if np.sum(arr[y] < 140) > w * 0.05:
-            return y
-
-    return None
-
-
-# READ DAY
-
-def read_day(arr, y):
-
-    h, w = arr.shape
-
-    left = int(w * 0.12)
-    right = int(w * 0.98)
-
-    width = right - left
-
-    cell = width / 24
+    first_line = last_line - (24 * cell_width)
 
     off = []
 
     for hour in range(24):
 
-        x1 = int(left + hour * cell)
-        x2 = int(x1 + cell)
+        x1 = int(first_line + hour * cell_width)
+        x2 = int(x1 + cell_width)
 
         mid = (x1 + x2) // 2
 
@@ -136,31 +141,33 @@ def read_day(arr, y):
     return merge(off)
 
 
-# READ GRAPH
+# ================= READ GRAPH =================
 
-def read_graph(original_path):
+def read_graph(original):
 
-    crop_path = crop_graph(original_path)
+    crop = crop_graph(original)
 
-    img = Image.open(crop_path).convert("L")
+    img = Image.open(crop).convert("L")
 
     arr = np.array(img)
 
+    last_line = find_last_vertical_line(arr)
+
     today_y = find_day_row(arr)
 
-    tomorrow_y = today_y + int(arr.shape[0] * 0.15)
+    tomorrow_y = today_y + 60
 
-    today = read_day(arr, today_y)
-    tomorrow = read_day(arr, tomorrow_y)
+    today = read_day(arr, today_y, last_line)
+    tomorrow = read_day(arr, tomorrow_y, last_line)
 
     return today, tomorrow
 
 
-# BUILD TEXT
+# ================= BUILD TEXT =================
 
-def build_caption(original_path):
+def build_caption(original):
 
-    today, tomorrow = read_graph(original_path)
+    today, tomorrow = read_graph(original)
 
     text = f"Черга {QUEUE}\n"
     text += f"Оновлено: {now().strftime('%d.%m.%Y %H:%M')}\n"
@@ -176,15 +183,15 @@ def build_caption(original_path):
     return text
 
 
-# SEND ORIGINAL PHOTO
+# ================= SEND ORIGINAL =================
 
-def send_photo(original_path):
+def send_photo(original):
 
-    caption = build_caption(original_path)
+    caption = build_caption(original)
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
 
-    with open(original_path, "rb") as f:
+    with open(original, "rb") as f:
 
         requests.post(
             url,
@@ -196,7 +203,7 @@ def send_photo(original_path):
         )
 
 
-# GET GRAPH
+# ================= GET GRAPH =================
 
 async def get_graph():
 
@@ -241,7 +248,7 @@ async def get_graph():
     return None
 
 
-# MAIN
+# ================= MAIN =================
 
 async def main():
 
