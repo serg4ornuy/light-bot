@@ -18,7 +18,7 @@ api_hash = "03e024f62a62ecd99bda067e6a2d1824"
 BOT_TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
 CHAT_ID = "-1003856095678"
 
-DTEK_BOT = "@DTEKKyivRegionElektromerezhiBot"
+DTEK_BOT = "@DTEKKyivRegionElektромerezhiBot"
 
 QUEUE = "1.2"
 
@@ -39,6 +39,21 @@ def save_state(s):
     open(STATE_FILE, "w").write(s)
 
 
+# ===== CROP COPY (НЕ ЧІПАЄ ОРИГІНАЛ) =====
+
+def crop_graph(original_path):
+
+    img = Image.open(original_path)
+
+    cropped = img.crop((0, 0, 1014, 411))
+
+    crop_path = "graph_crop.jpg"
+
+    cropped.save(crop_path)
+
+    return crop_path
+
+
 # ===== MERGE =====
 
 def merge(minutes):
@@ -46,7 +61,7 @@ def merge(minutes):
     if not minutes:
         return []
 
-    minutes = sorted(minutes)
+    minutes = sorted(set(minutes))
 
     result = []
 
@@ -76,97 +91,73 @@ def find_day_row(arr):
 
     h, w = arr.shape
 
-    for y in range(int(h*0.2), int(h*0.5)):
+    for y in range(int(h*0.3), int(h*0.7)):
 
-        dark = np.sum(arr[y] < 140)
-
-        if dark > w * 0.03:
+        if np.sum(arr[y] < 140) > w * 0.05:
             return y
 
     return None
 
 
-# ===== FIND BLOCKS =====
+# ===== READ DAY =====
 
-def find_blocks(arr, y):
+def read_day(arr, y):
 
     h, w = arr.shape
 
-    blocks = []
+    left = int(w * 0.12)
+    right = int(w * 0.98)
 
-    in_block = False
-
-    for x in range(w):
-
-        col = arr[y-3:y+3, x]
-
-        if col.mean() < 160:
-
-            if not in_block:
-                start = x
-                in_block = True
-
-        else:
-
-            if in_block:
-                end = x
-                center = (start + end)//2
-                blocks.append(center)
-                in_block = False
-
-    return blocks
-
-
-# ===== CONVERT BLOCKS TO TIME =====
-
-def blocks_to_time(blocks, width):
-
-    minutes = []
+    width = right - left
 
     cell = width / 24
 
-    for x in blocks:
+    off = []
 
-        hour = int(x / cell)
+    for hour in range(24):
 
-        offset = (x % cell)
+        x1 = int(left + hour * cell)
+        x2 = int(x1 + cell)
 
-        if offset < cell/2:
-            minutes.append(hour*60)
-        else:
-            minutes.append(hour*60+30)
+        mid = (x1 + x2) // 2
 
-    return merge(minutes)
+        lx = (x1 + mid) // 2
+        rx = (mid + x2) // 2
+
+        if arr[y, lx] < 160:
+            off.append(hour * 60)
+
+        if arr[y, rx] < 160:
+            off.append(hour * 60 + 30)
+
+    return merge(off)
 
 
 # ===== READ GRAPH =====
 
-def read_graph(path):
+def read_graph(original_path):
 
-    img = Image.open(path).convert("L")
+    crop_path = crop_graph(original_path)
+
+    img = Image.open(crop_path).convert("L")
 
     arr = np.array(img)
 
-    h, w = arr.shape
-
     today_y = find_day_row(arr)
 
-    tomorrow_y = today_y + int(h*0.07)
+    tomorrow_y = today_y + int(arr.shape[0] * 0.15)
 
-    today_blocks = find_blocks(arr, today_y)
-    tomorrow_blocks = find_blocks(arr, tomorrow_y)
-
-    today = blocks_to_time(today_blocks, w)
-    tomorrow = blocks_to_time(tomorrow_blocks, w)
+    today = read_day(arr, today_y)
+    tomorrow = read_day(arr, tomorrow_y)
 
     return today, tomorrow
 
 
 # ===== BUILD TEXT =====
 
-def build_caption(path):
+def build_caption(original_path):
 
-    today, tomorrow = read_graph(path)
+    today, tomorrow = read_graph(original_path)
 
     text = f"Черга {QUEUE}\n"
     text += f"Оновлено: {now().strftime('%d.%m.%Y %H:%M')}\n"
@@ -182,15 +173,15 @@ def build_caption(path):
     return text
 
 
-# ===== SEND =====
+# ===== SEND ORIGINAL PHOTO =====
 
-def send_photo(path):
+def send_photo(original_path):
 
-    caption = build_caption(path)
+    caption = build_caption(original_path)
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
 
-    with open(path, "rb") as f:
+    with open(original_path, "rb") as f:
 
         requests.post(
             url,
