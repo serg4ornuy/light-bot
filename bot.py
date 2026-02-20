@@ -12,8 +12,6 @@ from PIL import Image
 from telethon import TelegramClient
 
 
-# CONFIG
-
 api_id = 37132117
 api_hash = "03e024f62a62ecd99bda067e6a2d1824"
 
@@ -41,58 +39,34 @@ def save_state(s):
     open(STATE_FILE, "w").write(s)
 
 
-# ================= FIND COLUMNS =================
+# ================= FIND GRID LINES =================
 
-def find_columns(arr):
+def find_vertical_lines(arr):
 
     h, w = arr.shape
 
-    # беремо горизонтальний зріз таблиці
-    y = int(h * 0.35)
+    profile = np.sum(arr < 200, axis=0)
 
-    row = arr[y]
-
-    # світлі лінії таблиці
-    mask = row > 200
-
-    edges = []
+    lines = []
 
     in_line = False
 
     for x in range(w):
 
-        if mask[x] and not in_line:
+        if profile[x] > h * 0.05 and not in_line:
 
             start = x
             in_line = True
 
-        elif not mask[x] and in_line:
+        elif profile[x] <= h * 0.05 and in_line:
 
             end = x
 
-            if end - start > 2:
-
-                edges.append((start + end)//2)
+            lines.append((start + end)//2)
 
             in_line = False
 
-    columns = []
-
-    for i in range(len(edges)-1):
-
-        left = edges[i]
-        right = edges[i+1]
-
-        if right - left > 5:
-
-            columns.append((left, right))
-
-    # беремо тільки 24
-    if len(columns) >= 24:
-
-        columns = columns[:24]
-
-    return columns
+    return lines
 
 
 # ================= MERGE =================
@@ -128,11 +102,14 @@ def merge(minutes):
 
 # ================= READ DAY =================
 
-def read_day(arr, y, columns):
+def read_day(arr, y, lines):
 
     off = []
 
-    for hour, (left, right) in enumerate(columns):
+    for hour in range(min(24, len(lines)-1)):
+
+        left = lines[hour]
+        right = lines[hour+1]
 
         mid = (left + right)//2
 
@@ -140,11 +117,9 @@ def read_day(arr, y, columns):
         right_block = arr[y-4:y+4, mid:right]
 
         if left_block.mean() < 160:
-
             off.append(hour * 60)
 
         if right_block.mean() < 160:
-
             off.append(hour * 60 + 30)
 
     return merge(off)
@@ -158,50 +133,41 @@ def read_graph(path):
 
     arr = np.array(img)
 
-    columns = find_columns(arr)
+    lines = find_vertical_lines(arr)
 
-    if len(columns) < 24:
-
-        print("COLUMNS NOT FOUND:", len(columns))
-
+    if len(lines) < 25:
+        print("LINES FOUND:", len(lines))
         return [], []
 
-    # знайти рядки
     today_y = None
     tomorrow_y = None
 
     for y in range(arr.shape[0]):
 
-        dark = np.sum(arr[y, columns[0][0]:columns[-1][1]] < 150)
+        dark = np.sum(arr[y] < 150)
 
-        if dark > 50:
+        if dark > arr.shape[1] * 0.05:
 
             if today_y is None:
-
                 today_y = y
 
             elif tomorrow_y is None and abs(y - today_y) > 20:
-
                 tomorrow_y = y
-
                 break
 
     today = []
     tomorrow = []
 
     if today_y:
-        today = read_day(arr, today_y, columns)
+        today = read_day(arr, today_y, lines)
 
     if tomorrow_y:
-        tomorrow = read_day(arr, tomorrow_y, columns)
-
-    print("TODAY:", today)
-    print("TOMORROW:", tomorrow)
+        tomorrow = read_day(arr, tomorrow_y, lines)
 
     return today, tomorrow
 
 
-# ================= BUILD CAPTION =================
+# ================= BUILD TEXT =================
 
 def build_caption(path):
 
@@ -211,18 +177,12 @@ def build_caption(path):
     text += f"Оновлено: {now().strftime('%d.%m.%Y %H:%M')}\n"
 
     if today:
-
         text += "\nСьогодні:\n"
-
-        for i in today:
-            text += i + "\n"
+        text += "\n".join(today)
 
     if tomorrow:
-
         text += "\nЗавтра:\n"
-
-        for i in tomorrow:
-            text += i + "\n"
+        text += "\n".join(tomorrow)
 
     return text
 
@@ -235,7 +195,7 @@ def send_photo(path):
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
 
-    with open(path,"rb") as f:
+    with open(path, "rb") as f:
 
         requests.post(
             url,
@@ -266,20 +226,14 @@ async def get_graph():
     msg = await client.get_messages(bot, limit=1)
 
     if msg and msg[0].buttons:
-        try:
-            await msg[0].click(text="Наступний >")
-        except:
-            pass
+        await msg[0].click(text="Наступний >")
 
     await asyncio.sleep(2)
 
     msg = await client.get_messages(bot, limit=1)
 
     if msg and msg[0].buttons:
-        try:
-            await msg[0].click(text="✅ Обрати")
-        except:
-            pass
+        await msg[0].click(text="✅ Обрати")
 
     await asyncio.sleep(5)
 
