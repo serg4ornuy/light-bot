@@ -27,25 +27,27 @@ async def get_schedule():
     await client.send_message(bot, "/start")
     await asyncio.sleep(3)
 
-    # reply keyboard → просто відправити текст
-    await client.send_message(bot, "Графік відключень")
+    # reply keyboard (обов'язково з emoji)
+    await client.send_message(bot, "Графік відключень🕒")
     await asyncio.sleep(3)
 
-    # inline кнопка "Наступний >"
+    # inline: Наступний >
     msg = await client.get_messages(bot, limit=1)
+
     if msg[0].buttons:
         await msg[0].click(text="Наступний >")
 
     await asyncio.sleep(3)
 
-    # inline кнопка "Обрати"
+    # inline: Обрати
     msg = await client.get_messages(bot, limit=1)
+
     if msg[0].buttons:
-        await msg[0].click(text="Обрати")
+        await msg[0].click(text="✅ Обрати")
 
     await asyncio.sleep(5)
 
-    # знайти повідомлення з фото
+    # знайти фото
     messages = await client.get_messages(bot, limit=5)
 
     file_path = None
@@ -92,6 +94,7 @@ async def main():
     path = await get_schedule()
 
     if not path:
+        print("Фото не знайдено")
         return
 
     data = open(path, "rb").read()
