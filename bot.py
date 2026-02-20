@@ -3,38 +3,49 @@ import hashlib
 import os
 import requests
 import re
+
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from telethon import TelegramClient
 
-# Telegram API
+
+# =========================
+# TELEGRAM CONFIG
+# =========================
+
 api_id = 37132117
 api_hash = "03e024f62a62ecd99bda067e6a2d1824"
 
-# твій бот
 BOT_TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
 CHAT_ID = "-1003856095678"
 
-# файл стану
-STATE_FILE = "state.txt"
-
-# DTEK бот
 DTEK_BOT = "DTEKKyivRegionElektromerezhiBot"
 
-# твоя черга
 QUEUE = "1.2"
 
+STATE_FILE = "state.txt"
+
 
 # =========================
-# Визначення статусу
+# TIME
 # =========================
 
-def parse_status(text):
+def now_kyiv():
 
-    now = datetime.now()
-    now_minutes = now.hour * 60 + now.minute
+    return datetime.now(ZoneInfo("Europe/Kyiv"))
 
-    intervals = re.findall(r'(\d{2}):(\d{2})-(\d{2}):(\d{2})', text)
+
+# =========================
+# PARSE INTERVALS
+# =========================
+
+def parse_intervals(text):
+
+    intervals = re.findall(
+        r'(\d{2}):(\d{2})-(\d{2}):(\d{2})',
+        text
+    )
 
     parsed = []
 
@@ -47,48 +58,86 @@ def parse_status(text):
 
     parsed.sort()
 
-    # якщо зараз без світла
-    for start, end in parsed:
+    return parsed
+
+
+# =========================
+# STATUS + NEXT OUTAGE
+# =========================
+
+def build_status(text):
+
+    now = now_kyiv()
+
+    now_minutes = now.hour * 60 + now.minute
+
+    intervals = parse_intervals(text)
+
+    status_line = "Світло є 💡"
+
+    next_outage = None
+
+    # перевірка чи зараз без світла
+    for start, end in intervals:
 
         if start <= now_minutes <= end:
 
             end_h = end // 60
             end_m = end % 60
 
-            return f"Світла немає до {end_h:02}:{end_m:02} 🕯️"
+            status_line = f"Світла немає до {end_h:02}:{end_m:02} 🕯️"
 
-    # якщо світло є — шукаємо наступне відключення
-    for start, end in parsed:
+            # знайти наступне відключення після включення
+            future = [i for i in intervals if i[0] > end]
 
-        if now_minutes < start:
+            if future:
 
-            start_h = start // 60
-            start_m = start % 60
+                next_start = future[0][0]
 
-            return f"Світло є до {start_h:02}:{start_m:02} 💡"
+                next_outage = f"{next_start//60:02}:{next_start%60:02}"
 
-    return "Світло є 💡"
+            break
+
+    else:
+        # світло є → знайти найближче відключення
+        future = [i for i in intervals if i[0] > now_minutes]
+
+        if future:
+
+            next_start = future[0][0]
+
+            status_line = f"Світло є до {next_start//60:02}:{next_start%60:02} 💡"
+
+            next_outage = f"{next_start//60:02}:{next_start%60:02}"
+
+    return status_line, next_outage
 
 
 # =========================
-# Формування підпису
+# CAPTION
 # =========================
 
 def build_caption(text):
 
-    status = parse_status(text)
+    status_line, next_outage = build_status(text)
 
-    now = datetime.now().strftime("%d.%m.%Y %H:%M")
+    now = now_kyiv().strftime("%d.%m.%Y %H:%M")
 
-    return (
-        f"{status}\n"
-        f"Черга {QUEUE}\n"
-        f"Оновлено: {now}"
-    )
+    caption = status_line + "\n"
+
+    if next_outage:
+
+        caption += f"Наступне відключення: {next_outage}\n"
+
+    caption += f"Черга {QUEUE}\n"
+
+    caption += f"Оновлено: {now}"
+
+    return caption
 
 
 # =========================
-# Отримання фото з DTEK
+# GET PHOTO FROM DTEK BOT
 # =========================
 
 async def get_schedule():
@@ -99,26 +148,26 @@ async def get_schedule():
 
     bot = await client.get_entity(DTEK_BOT)
 
-    # старт
     await client.send_message(bot, "/start")
+
     await asyncio.sleep(2)
 
-    # кнопка графіка (reply keyboard)
     await client.send_message(bot, "Графік відключень🕒")
+
     await asyncio.sleep(3)
 
-    # кнопка Наступний >
     msg = await client.get_messages(bot, limit=1)
 
     if msg[0].buttons:
+
         await msg[0].click(text="Наступний >")
 
     await asyncio.sleep(2)
 
-    # кнопка Обрати
     msg = await client.get_messages(bot, limit=1)
 
     if msg[0].buttons:
+
         await msg[0].click(text="✅ Обрати")
 
     await asyncio.sleep(5)
@@ -146,7 +195,7 @@ async def get_schedule():
 
 
 # =========================
-# Відправка фото
+# SEND PHOTO
 # =========================
 
 def send_photo(path, text):
@@ -158,32 +207,35 @@ def send_photo(path, text):
     with open(path, "rb") as f:
 
         requests.post(
+
             url,
+
             data={
                 "chat_id": CHAT_ID,
                 "caption": caption
             },
+
             files={"photo": f}
+
         )
 
 
 # =========================
-# State management
+# STATE
 # =========================
 
 def load_state():
 
     if not os.path.exists(STATE_FILE):
+
         return None
 
-    with open(STATE_FILE, "r") as f:
-        return f.read()
+    return open(STATE_FILE).read()
 
 
 def save_state(state):
 
-    with open(STATE_FILE, "w") as f:
-        f.write(state)
+    open(STATE_FILE, "w").write(state)
 
 
 # =========================
@@ -195,7 +247,9 @@ async def main():
     path, text = await get_schedule()
 
     if not path:
+
         print("Фото не знайдено")
+
         return
 
     data = open(path, "rb").read()
