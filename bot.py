@@ -3,46 +3,39 @@ import hashlib
 import os
 import requests
 
-from playwright.async_api import async_playwright
+from telethon import TelegramClient
 
-TOKEN = "ТВОЙ_TOKEN"
-CHAT_ID = "ТВОЙ_CHAT_ID"
+# твої дані
+api_id = 37132117
+api_hash = "03e024f62a62ecd99bda067e6a2d1824"
+
+BOT_TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
+CHAT_ID = "-1003856095678"
 
 STATE_FILE = "state.txt"
 
-URL = "https://www.dtek-krem.com.ua/ua/shutdowns"
+DTEK_BOT = "DTEKKyivRegionElektromerezhiBot"
 
 
-async def get_schedule():
+async def get_last_message():
 
-    async with async_playwright() as p:
+    async with TelegramClient("session", api_id, api_hash) as client:
 
-        browser = await p.chromium.launch()
+        entity = await client.get_entity(DTEK_BOT)
 
-        page = await browser.new_page()
+        messages = await client.get_messages(entity, limit=1)
 
-        await page.goto(URL)
-
-        # чекати popup і закрити
-        try:
-            await page.click("button:has-text('×')", timeout=5000)
-        except:
-            pass
-
-        await page.wait_for_selector("table")
-
-        content = await page.locator("table").inner_text()
-
-        await browser.close()
-
-        return content
+        return messages[0].text
 
 
 def send(text):
 
     requests.post(
-        f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-        data={"chat_id": CHAT_ID, "text": text}
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        data={
+            "chat_id": CHAT_ID,
+            "text": text
+        }
     )
 
 
@@ -59,20 +52,25 @@ def save_state(state):
     open(STATE_FILE, "w").write(state)
 
 
-schedule = asyncio.run(get_schedule())
+async def main():
 
-new_hash = hashlib.md5(schedule.encode()).hexdigest()
+    text = await get_last_message()
 
-old_hash = load_state()
+    new_hash = hashlib.md5(text.encode()).hexdigest()
 
-if old_hash is None:
+    old_hash = load_state()
 
-    send("Бот запущено\n\n" + schedule)
+    if old_hash is None:
 
-    save_state(new_hash)
+        send("✅ Підключено до DTEK\n\n" + text)
 
-elif new_hash != old_hash:
+        save_state(new_hash)
 
-    send("Графік змінено\n\n" + schedule)
+    elif new_hash != old_hash:
 
-    save_state(new_hash)
+        send("⚡ Графік змінено\n\n" + text)
+
+        save_state(new_hash)
+
+
+asyncio.run(main())
