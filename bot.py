@@ -2,7 +2,6 @@ import asyncio
 import hashlib
 import os
 import requests
-import re
 
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -37,101 +36,17 @@ def now_kyiv():
 
 
 # =========================
-# PARSE INTERVALS
-# =========================
-
-def parse_intervals(text):
-
-    intervals = re.findall(
-        r'(\d{2}):(\d{2})-(\d{2}):(\d{2})',
-        text
-    )
-
-    parsed = []
-
-    for h1, m1, h2, m2 in intervals:
-
-        start = int(h1) * 60 + int(m1)
-        end = int(h2) * 60 + int(m2)
-
-        parsed.append((start, end))
-
-    parsed.sort()
-
-    return parsed
-
-
-# =========================
-# STATUS + NEXT OUTAGE
-# =========================
-
-def build_status(text):
-
-    now = now_kyiv()
-
-    now_minutes = now.hour * 60 + now.minute
-
-    intervals = parse_intervals(text)
-
-    status_line = "Світло є 💡"
-
-    next_outage = None
-
-    # перевірка чи зараз без світла
-    for start, end in intervals:
-
-        if start <= now_minutes <= end:
-
-            end_h = end // 60
-            end_m = end % 60
-
-            status_line = f"Світла немає до {end_h:02}:{end_m:02} 🕯️"
-
-            # знайти наступне відключення після включення
-            future = [i for i in intervals if i[0] > end]
-
-            if future:
-
-                next_start = future[0][0]
-
-                next_outage = f"{next_start//60:02}:{next_start%60:02}"
-
-            break
-
-    else:
-        # світло є → знайти найближче відключення
-        future = [i for i in intervals if i[0] > now_minutes]
-
-        if future:
-
-            next_start = future[0][0]
-
-            status_line = f"Світло є до {next_start//60:02}:{next_start%60:02} 💡"
-
-            next_outage = f"{next_start//60:02}:{next_start%60:02}"
-
-    return status_line, next_outage
-
-
-# =========================
 # CAPTION
 # =========================
 
-def build_caption(text):
-
-    status_line, next_outage = build_status(text)
+def build_caption():
 
     now = now_kyiv().strftime("%d.%m.%Y %H:%M")
 
-    caption = status_line + "\n"
-
-    if next_outage:
-
-        caption += f"Наступне відключення: {next_outage}\n"
-
-    caption += f"Черга {QUEUE}\n"
-
-    caption += f"Оновлено: {now}"
+    caption = (
+        f"Черга {QUEUE}\n"
+        f"Оновлено: {now}"
+    )
 
     return caption
 
@@ -175,7 +90,6 @@ async def get_schedule():
     messages = await client.get_messages(bot, limit=5)
 
     file_path = None
-    text = ""
 
     for m in messages:
 
@@ -185,22 +99,20 @@ async def get_schedule():
 
             await m.download_media(file_path)
 
-            text = m.text or ""
-
             break
 
     await client.disconnect()
 
-    return file_path, text
+    return file_path
 
 
 # =========================
 # SEND PHOTO
 # =========================
 
-def send_photo(path, text):
+def send_photo(path):
 
-    caption = build_caption(text)
+    caption = build_caption()
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
 
@@ -244,7 +156,7 @@ def save_state(state):
 
 async def main():
 
-    path, text = await get_schedule()
+    path = await get_schedule()
 
     if not path:
 
@@ -260,13 +172,13 @@ async def main():
 
     if old_hash is None:
 
-        send_photo(path, text)
+        send_photo(path)
 
         save_state(new_hash)
 
     elif new_hash != old_hash:
 
-        send_photo(path, text)
+        send_photo(path)
 
         save_state(new_hash)
 
