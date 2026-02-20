@@ -12,7 +12,7 @@ from PIL import Image
 from telethon import TelegramClient
 
 
-# ========= CONFIG =========
+# ================= CONFIG =================
 
 api_id = 37132117
 api_hash = "03e024f62a62ecd99bda067e6a2d1824"
@@ -27,57 +27,53 @@ QUEUE = "1.2"
 STATE_FILE = "state.txt"
 
 
-# ========= TIME =========
+# ================= TIME =================
 
 def now():
     return datetime.now(ZoneInfo("Europe/Kyiv"))
 
 
-# ========= STATE =========
+# ================= STATE =================
 
 def load_state():
     if not os.path.exists(STATE_FILE):
         return None
-    return open(STATE_FILE).read()
+    return open(STATE_FILE).read().strip()
 
 
 def save_state(s):
     open(STATE_FILE, "w").write(s)
 
 
-# ========= FIND GRAPH =========
+# ================= READ GRAPH =================
 
-def find_graph_rows(arr):
+def read_graph(path):
 
-    h, w = arr.shape
+    try:
 
-    rows = []
+        img = Image.open(path).convert("L")
 
-    for y in range(int(h*0.2), int(h*0.5)):
+        arr = np.array(img)
 
-        line = arr[y]
+        h, w = arr.shape
 
-        dark = np.sum(line < 160)
+        left = int(w * 0.15)
+        right = int(w * 0.95)
 
-        if dark > w * 0.05:
-            rows.append(y)
+        today_y = int(h * 0.30)
+        tomorrow_y = int(h * 0.38)
 
-    if not rows:
-        return None, None
+        today = read_day(arr, today_y, left, right)
+        tomorrow = read_day(arr, tomorrow_y, left, right)
 
-    today = rows[0]
+        return today, tomorrow
 
-    tomorrow = None
+    except Exception as e:
 
-    for y in rows:
-        if y - today > 20:
-            tomorrow = y
-            break
+        print("READ ERROR:", e)
 
-    return today, tomorrow
+        return [], []
 
-
-# ========= READ DAY =========
 
 def read_day(arr, y, left, right):
 
@@ -90,7 +86,7 @@ def read_day(arr, y, left, right):
     for hour in range(24):
 
         x1 = int(left + hour * col_width)
-        x2 = int(left + (hour+1) * col_width)
+        x2 = int(left + (hour + 1) * col_width)
 
         mid = (x1 + x2) // 2
 
@@ -98,15 +94,13 @@ def read_day(arr, y, left, right):
         right_block = arr[y-3:y+3, mid:x2]
 
         if left_block.mean() < 170:
-            off.append(hour*60)
+            off.append(hour * 60)
 
         if right_block.mean() < 170:
-            off.append(hour*60 + 30)
+            off.append(hour * 60 + 30)
 
     return merge(off)
 
-
-# ========= MERGE =========
 
 def merge(minutes):
 
@@ -125,11 +119,11 @@ def merge(minutes):
         if m == prev + 30:
             prev = m
         else:
-            result.append((start, prev+30))
+            result.append((start, prev + 30))
             start = m
             prev = m
 
-    result.append((start, prev+30))
+    result.append((start, prev + 30))
 
     return [
         f"{s//60:02}:{s%60:02}–{e//60:02}:{e%60:02}"
@@ -137,34 +131,7 @@ def merge(minutes):
     ]
 
 
-# ========= READ GRAPH =========
-
-def read_graph(path):
-
-    img = Image.open(path).convert("L")
-
-    arr = np.array(img)
-
-    h, w = arr.shape
-
-    left = int(w*0.15)
-    right = int(w*0.95)
-
-    today_y, tomorrow_y = find_graph_rows(arr)
-
-    today = []
-    tomorrow = []
-
-    if today_y:
-        today = read_day(arr, today_y, left, right)
-
-    if tomorrow_y:
-        tomorrow = read_day(arr, tomorrow_y, left, right)
-
-    return today, tomorrow
-
-
-# ========= CAPTION =========
+# ================= CAPTION =================
 
 def build_caption(path):
 
@@ -174,27 +141,34 @@ def build_caption(path):
     text += f"Оновлено: {now().strftime('%d.%m.%Y %H:%M')}\n"
 
     if today:
+
         text += "\nСьогодні:\n"
-        text += "\n".join(today)
+
+        for i in today:
+            text += i + "\n"
 
     if tomorrow:
-        text += "\n\nЗавтра:\n"
-        text += "\n".join(tomorrow)
+
+        text += "\nЗавтра:\n"
+
+        for i in tomorrow:
+            text += i + "\n"
 
     return text
 
 
-# ========= SEND =========
+# ================= SEND =================
 
 def send_photo(path):
 
     caption = build_caption(path)
 
+    print("SENDING TO TELEGRAM...")
     print(caption)
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
 
-    with open(path,"rb") as f:
+    with open(path, "rb") as f:
 
         r = requests.post(
             url,
@@ -205,18 +179,23 @@ def send_photo(path):
             files={"photo": f}
         )
 
-    print(r.status_code, r.text)
+    print("STATUS:", r.status_code)
+    print(r.text)
 
 
-# ========= GET GRAPH =========
+# ================= GET GRAPH =================
 
 async def get_graph():
+
+    print("CONNECT...")
 
     client = TelegramClient("session", api_id, api_hash)
 
     await client.start()
 
     bot = await client.get_entity(DTEK_BOT)
+
+    print("OPEN MENU")
 
     await client.send_message(bot, "/start")
 
@@ -229,6 +208,7 @@ async def get_graph():
     msg = await client.get_messages(bot, limit=1)
 
     if msg and msg[0].buttons:
+
         try:
             await msg[0].click(text="Наступний >")
         except:
@@ -239,6 +219,7 @@ async def get_graph():
     msg = await client.get_messages(bot, limit=1)
 
     if msg and msg[0].buttons:
+
         try:
             await msg[0].click(text="✅ Обрати")
         except:
@@ -246,42 +227,69 @@ async def get_graph():
 
     await asyncio.sleep(5)
 
-    messages = await client.get_messages(bot, limit=5)
+    messages = await client.get_messages(bot, limit=10)
 
     for m in messages:
+
         if m.photo:
+
             path = "graph.jpg"
+
             await m.download_media(path)
+
+            print("GRAPH SAVED:", path)
+
             return path
+
+    print("GRAPH NOT FOUND")
 
     return None
 
 
-# ========= MAIN =========
+# ================= MAIN =================
 
 async def main():
+
+    print("START")
 
     path = await get_graph()
 
     if not path:
-        print("No graph")
+
+        print("NO GRAPH")
+
         return
 
     new_hash = hashlib.md5(open(path,"rb").read()).hexdigest()
 
     old_hash = load_state()
 
-    if new_hash != old_hash:
+    print("HASH:", new_hash)
+
+    # ВІДПРАВЛЯЄМО ЗАВЖДИ ЯКЩО НЕМАЄ STATE
+    if old_hash is None:
+
+        print("FIRST RUN")
 
         send_photo(path)
 
         save_state(new_hash)
 
-        print("Sent")
+        return
+
+    if new_hash != old_hash:
+
+        print("GRAPH CHANGED")
+
+        send_photo(path)
+
+        save_state(new_hash)
 
     else:
 
-        print("No changes")
+        print("NO CHANGES")
 
+
+# ================= RUN =================
 
 asyncio.run(main())
