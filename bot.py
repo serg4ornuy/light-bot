@@ -13,12 +13,10 @@ from PIL import Image
 from telethon import TelegramClient
 
 
-# CONFIG
-
 api_id = 37132117
 api_hash = "03e024f62a62ecd99bda067e6a2d1824"
 
-BOT_TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
+BOT_TOKEN = "ТВОЙ_BOT_TOKEN"
 CHAT_ID = "-1003856095678"
 
 DTEK_BOT = "DTEKKyivRegionElektromerezhiBot"
@@ -28,67 +26,77 @@ QUEUE = "1.2"
 STATE_FILE = "state.txt"
 
 
-# TIME
-
 def now_kyiv():
     return datetime.now(ZoneInfo("Europe/Kyiv"))
 
 
-# FIND GRAPH AREA
+# ВИРІЗАЄ ВЕРХНЮ ТАБЛИЦЮ
 
-def find_graph_area(arr):
+def crop_main_graph(img):
+
+    arr = np.array(img.convert("L"))
 
     h, w = arr.shape
 
-    y = int(h * 0.30)
+    # шукаємо область де є "Черга"
+    for y in range(int(h*0.05), int(h*0.3)):
 
-    row = arr[y]
+        if arr[y].mean() < 240:
 
-    dark = row < 180
+            top = y + 30
+            break
+    else:
+        top = int(h*0.18)
 
-    xs = np.where(dark)[0]
+    bottom = int(h*0.42)
 
-    if len(xs) == 0:
-        return int(w*0.2), int(w*0.95)
+    left = int(w*0.15)
+    right = int(w*0.95)
 
-    left = xs.min()
-    right = xs.max()
-
-    return left, right
+    return arr[top:bottom, left:right]
 
 
-# READ ONE ROW
+def read_intervals(arr):
 
-def read_day(arr, y, left, right):
+    h, w = arr.shape
 
-    width = right - left
+    row_today = int(h*0.35)
+    row_tomorrow = int(h*0.65)
 
-    col_width = width / 24
+    return [
+        read_day(arr, row_today),
+        read_day(arr, row_tomorrow)
+    ]
 
-    off_minutes = []
+
+def read_day(arr, y):
+
+    h, w = arr.shape
+
+    col_width = w / 24
+
+    off = []
 
     for hour in range(24):
 
-        x1 = int(left + hour * col_width)
-        x2 = int(left + (hour + 1) * col_width)
+        x1 = int(hour * col_width)
+        x2 = int((hour+1) * col_width)
 
-        mid = (x1 + x2) // 2
+        mid = (x1 + x2)//2
 
-        left_block = arr[y-5:y+5, x1:mid]
-        right_block = arr[y-5:y+5, mid:x2]
+        left = arr[y-5:y+5, x1:mid]
+        right = arr[y-5:y+5, mid:x2]
 
-        if left_block.mean() < 170:
-            off_minutes.append(hour * 60)
+        if left.mean() < 180:
+            off.append(hour*60)
 
-        if right_block.mean() < 170:
-            off_minutes.append(hour * 60 + 30)
+        if right.mean() < 180:
+            off.append(hour*60 + 30)
 
-    return merge_minutes(off_minutes)
+    return merge(off)
 
 
-# MERGE INTERVALS
-
-def merge_minutes(minutes):
+def merge(minutes):
 
     if not minutes:
         return []
@@ -102,7 +110,7 @@ def merge_minutes(minutes):
 
     for m in minutes[1:]:
 
-        if m == prev + 30:
+        if m == prev+30:
             prev = m
         else:
             result.append((start, prev+30))
@@ -111,101 +119,42 @@ def merge_minutes(minutes):
 
     result.append((start, prev+30))
 
-    formatted = []
-
-    for s, e in result:
-
-        sh = s//60
-        sm = s%60
-
-        eh = e//60
-        em = e%60
-
-        formatted.append(f"{sh:02}:{sm:02}–{eh:02}:{em:02}")
-
-    return formatted
+    return [
+        f"{s//60:02}:{s%60:02}–{e//60:02}:{e%60:02}"
+        for s,e in result
+    ]
 
 
-# READ SCHEDULE
+def build_caption(path, text):
 
-def read_schedule(path):
+    img = Image.open(path)
 
-    img = Image.open(path).convert("L")
+    cropped = crop_main_graph(img)
 
-    arr = np.array(img)
-
-    left, right = find_graph_area(arr)
-
-    h = arr.shape[0]
-
-    today_y = int(h * 0.30)
-    tomorrow_y = int(h * 0.38)
-
-    rows = []
-
-    today = read_day(arr, today_y, left, right)
-
-    if today:
-        rows.append(today)
-
-    tomorrow = read_day(arr, tomorrow_y, left, right)
-
-    if tomorrow:
-        rows.append(tomorrow)
-
-    return rows
-
-
-# EXTRACT DATE
-
-def extract_graph_date(text):
-
-    match = re.search(r'(\d{2}\.\d{2}\.\d{4})', text)
-
-    if match:
-        return datetime.strptime(match.group(1), "%d.%m.%Y")
-
-    return now_kyiv()
-
-
-# BUILD CAPTION
-
-def build_caption(path, graph_text):
-
-    graph_date = extract_graph_date(graph_text)
+    today, tomorrow = read_intervals(cropped)
 
     now = now_kyiv().strftime("%d.%m.%Y %H:%M")
 
-    rows = read_schedule(path)
-
     caption = f"Черга {QUEUE}\nОновлено: {now}\n"
 
-    if len(rows) >= 1:
+    if today:
+        caption += "\nСьогодні:\n"
+        caption += "\n".join(today)
 
-        caption += f"\n{graph_date.strftime('%d.%m.%Y')}:\n"
-
-        for i in rows[0]:
-            caption += i + "\n"
-
-    if len(rows) >= 2:
-
-        caption += f"\n{(graph_date + timedelta(days=1)).strftime('%d.%m.%Y')}:\n"
-
-        for i in rows[1]:
-            caption += i + "\n"
+    if tomorrow:
+        caption += "\n\nЗавтра:\n"
+        caption += "\n".join(tomorrow)
 
     return caption
 
 
-# SEND PHOTO
+def send_photo(path, text):
 
-def send_photo(path, graph_text):
-
-    caption = build_caption(path, graph_text)
+    caption = build_caption(path, text)
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
 
-    with open(path, "rb") as f:
+    with open(path,"rb") as f:
 
         requests.post(
             url,
@@ -217,8 +166,6 @@ def send_photo(path, graph_text):
         )
 
 
-# STATE
-
 def load_state():
 
     if not os.path.exists(STATE_FILE):
@@ -229,10 +176,8 @@ def load_state():
 
 def save_state(state):
 
-    open(STATE_FILE, "w").write(state)
+    open(STATE_FILE,"w").write(state)
 
-
-# GET GRAPH
 
 async def get_graph():
 
@@ -243,11 +188,9 @@ async def get_graph():
     bot = await client.get_entity(DTEK_BOT)
 
     await client.send_message(bot, "/start")
-
     await asyncio.sleep(2)
 
     await client.send_message(bot, "Графік відключень🕒")
-
     await asyncio.sleep(3)
 
     msg = await client.get_messages(bot, limit=1)
@@ -262,7 +205,7 @@ async def get_graph():
     if msg and msg[0].buttons:
         await msg[0].click(text="✅ Обрати")
 
-    await asyncio.sleep(5)
+    await asyncio.sleep(4)
 
     messages = await client.get_messages(bot, limit=5)
 
@@ -270,7 +213,7 @@ async def get_graph():
 
         if m.photo:
 
-            path = "schedule.jpg"
+            path = "graph.jpg"
 
             await m.download_media(path)
 
@@ -279,22 +222,20 @@ async def get_graph():
     return None, ""
 
 
-# MAIN
-
 async def main():
 
-    path, graph_text = await get_graph()
+    path, text = await get_graph()
 
     if not path:
         return
 
-    new_hash = hashlib.md5(graph_text.encode()).hexdigest()
+    new_hash = hashlib.md5(text.encode()).hexdigest()
 
     old_hash = load_state()
 
-    if old_hash != new_hash:
+    if new_hash != old_hash:
 
-        send_photo(path, graph_text)
+        send_photo(path, text)
 
         save_state(new_hash)
 
