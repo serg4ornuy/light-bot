@@ -5,10 +5,11 @@ import requests
 
 from telethon import TelegramClient
 
-# твої дані
+# твої API
 api_id = 37132117
 api_hash = "03e024f62a62ecd99bda067e6a2d1824"
 
+# твій Telegram бот
 BOT_TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
 CHAT_ID = "-1003856095678"
 
@@ -17,21 +18,27 @@ STATE_FILE = "state.txt"
 DTEK_BOT = "DTEKKyivRegionElektromerezhiBot"
 
 
-async def get_last_message():
+async def get_dtek_message():
 
-    async with TelegramClient("session", api_id, api_hash) as client:
+    client = TelegramClient("session", api_id, api_hash)
 
-        entity = await client.get_entity(DTEK_BOT)
+    await client.start()
 
-        messages = await client.get_messages(entity, limit=1)
+    entity = await client.get_entity(DTEK_BOT)
 
-        return messages[0].text
+    messages = await client.get_messages(entity, limit=1)
+
+    await client.disconnect()
+
+    return messages[0].text
 
 
-def send(text):
+def send_to_channel(text):
+
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
     requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        url,
         data={
             "chat_id": CHAT_ID,
             "text": text
@@ -44,17 +51,19 @@ def load_state():
     if not os.path.exists(STATE_FILE):
         return None
 
-    return open(STATE_FILE).read()
+    with open(STATE_FILE, "r") as f:
+        return f.read()
 
 
 def save_state(state):
 
-    open(STATE_FILE, "w").write(state)
+    with open(STATE_FILE, "w") as f:
+        f.write(state)
 
 
 async def main():
 
-    text = await get_last_message()
+    text = await get_dtek_message()
 
     new_hash = hashlib.md5(text.encode()).hexdigest()
 
@@ -62,13 +71,17 @@ async def main():
 
     if old_hash is None:
 
-        send("✅ Підключено до DTEK\n\n" + text)
+        send_to_channel(
+            "✅ Підключено до DTEK\n\n" + text
+        )
 
         save_state(new_hash)
 
     elif new_hash != old_hash:
 
-        send("⚡ Графік змінено\n\n" + text)
+        send_to_channel(
+            "⚡ Графік оновлено\n\n" + text
+        )
 
         save_state(new_hash)
 
