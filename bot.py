@@ -38,7 +38,7 @@ def now_kyiv():
 
 def extract_graph_date(text):
 
-    match = re.search(r'(\d{2}\.\d{2}\.\d{4})', text)
+    match = re.search(r'(\d{2}\.\d{2}\.\d{2024})', text)
 
     if match:
         return datetime.strptime(match.group(1), "%d.%m.%Y")
@@ -46,51 +46,62 @@ def extract_graph_date(text):
     return now_kyiv()
 
 
-# READ ROW
+# READ BLOCKS (48 blocks of 30 min)
 
-def read_row(arr, y, width):
+def read_row_blocks(arr, y, width):
 
-    row = arr[y]
+    blocks = 48
 
-    threshold = 110
-
-    dark = row < threshold
-
-    segments = []
-
-    start = None
-
-    for i, val in enumerate(dark):
-
-        if val and start is None:
-            start = i
-
-        elif not val and start is not None:
-            segments.append((start, i))
-            start = None
-
-    if start is not None:
-        segments.append((start, len(dark)))
+    block_width = width / blocks
 
     result = []
 
-    for s, e in segments:
+    state = False
+    start_block = None
 
-        start_hour = (s / width) * 24
-        end_hour = (e / width) * 24
+    for i in range(blocks):
 
-        sh = int(start_hour)
-        sm = int((start_hour % 1) * 60)
+        x1 = int(i * block_width)
+        x2 = int((i + 1) * block_width)
 
-        eh = int(end_hour)
-        em = int((end_hour % 1) * 60)
+        segment = arr[y, x1:x2]
 
-        result.append(f"{sh:02}:{sm:02}–{eh:02}:{em:02}")
+        avg = segment.mean()
 
-    return result
+        is_dark = avg < 140
+
+        if is_dark and not state:
+
+            start_block = i
+            state = True
+
+        elif not is_dark and state:
+
+            result.append((start_block, i))
+            state = False
+
+    if state:
+        result.append((start_block, blocks))
+
+    intervals = []
+
+    for start, end in result:
+
+        start_minutes = start * 30
+        end_minutes = end * 30
+
+        sh = start_minutes // 60
+        sm = start_minutes % 60
+
+        eh = end_minutes // 60
+        em = end_minutes % 60
+
+        intervals.append(f"{sh:02}:{sm:02}–{eh:02}:{em:02}")
+
+    return intervals
 
 
-# AUTO-DETECT ROWS
+# READ SCHEDULE
 
 def read_schedule(path):
 
@@ -100,22 +111,21 @@ def read_schedule(path):
 
     h, w = arr.shape
 
-    # перевіряємо кілька можливих позицій
-    possible_rows = [
+    positions = [
         int(h * 0.55),
         int(h * 0.68)
     ]
 
-    results = []
+    rows = []
 
-    for y in possible_rows:
+    for y in positions:
 
-        row = read_row(arr, y, w)
+        intervals = read_row_blocks(arr, y, w)
 
-        if row:
-            results.append(row)
+        if intervals:
+            rows.append(intervals)
 
-    return results
+    return rows
 
 
 # CAPTION
@@ -139,8 +149,8 @@ def build_caption(path, graph_text):
 
         caption += f"\n{date}:\n"
 
-        for t in rows[0]:
-            caption += t + "\n"
+        for i in rows[0]:
+            caption += i + "\n"
 
     elif len(rows) >= 2:
 
@@ -149,13 +159,13 @@ def build_caption(path, graph_text):
 
         caption += f"\n{date1}:\n"
 
-        for t in rows[0]:
-            caption += t + "\n"
+        for i in rows[0]:
+            caption += i + "\n"
 
         caption += f"\n{date2}:\n"
 
-        for t in rows[1]:
-            caption += t + "\n"
+        for i in rows[1]:
+            caption += i + "\n"
 
     return caption
 
