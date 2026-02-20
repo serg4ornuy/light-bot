@@ -45,7 +45,7 @@ def save_state(s):
     open(STATE_FILE, "w").write(s)
 
 
-# ================= MERGE INTERVALS =================
+# ================= MERGE =================
 
 def merge(minutes):
 
@@ -80,9 +80,9 @@ def merge(minutes):
 
 def read_day(arr, y, left, right):
 
-    w = right - left
+    width = right - left
 
-    col_width = w / 24
+    col_width = width / 24
 
     off = []
 
@@ -93,13 +93,13 @@ def read_day(arr, y, left, right):
 
         mid = (x1 + x2) // 2
 
-        left_block = arr[y-3:y+3, x1:mid]
-        right_block = arr[y-3:y+3, mid:x2]
+        left_block = arr[y-4:y+4, x1:mid]
+        right_block = arr[y-4:y+4, mid:x2]
 
-        if left_block.mean() < 170:
+        if left_block.mean() < 160:
             off.append(hour * 60)
 
-        if right_block.mean() < 170:
+        if right_block.mean() < 160:
             off.append(hour * 60 + 30)
 
     return merge(off)
@@ -115,25 +115,45 @@ def read_graph(path):
 
     h, w = arr.shape
 
-    left = int(w * 0.15)
-    right = int(w * 0.95)
+    # знайти таблицю по X
+    profile = np.sum(arr < 150, axis=0)
 
+    xs = np.where(profile > h * 0.02)[0]
+
+    if len(xs) == 0:
+
+        print("TABLE NOT FOUND")
+
+        return [], []
+
+    left = xs[0]
+    right = xs[-1]
+
+    print("LEFT:", left)
+    print("RIGHT:", right)
+
+    # знайти рядки
     today_y = None
     tomorrow_y = None
 
     for y in range(int(h*0.2), int(h*0.5)):
 
-        line = arr[y, left:right]
+        dark = np.sum(arr[y, left:right] < 150)
 
-        dark_pixels = np.sum(line < 150)
-
-        if dark_pixels > (right-left) * 0.1:
+        if dark > (right-left) * 0.1:
 
             if today_y is None:
+
                 today_y = y
+
             elif tomorrow_y is None and abs(y - today_y) > 20:
+
                 tomorrow_y = y
+
                 break
+
+    print("TODAY_Y:", today_y)
+    print("TOMORROW_Y:", tomorrow_y)
 
     today = []
     tomorrow = []
@@ -144,15 +164,13 @@ def read_graph(path):
     if tomorrow_y:
         tomorrow = read_day(arr, tomorrow_y, left, right)
 
-    print("TODAY_Y:", today_y)
-    print("TOMORROW_Y:", tomorrow_y)
     print("TODAY:", today)
     print("TOMORROW:", tomorrow)
 
     return today, tomorrow
 
 
-# ================= BUILD CAPTION =================
+# ================= CAPTION =================
 
 def build_caption(path):
 
@@ -184,7 +202,7 @@ def send_photo(path):
 
     caption = build_caption(path)
 
-    print("SENDING TO TELEGRAM...")
+    print("SENDING...")
     print(caption)
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
@@ -208,7 +226,7 @@ def send_photo(path):
 
 async def get_graph():
 
-    print("CONNECT...")
+    print("CONNECT")
 
     client = TelegramClient("session", api_id, api_hash)
 
@@ -258,7 +276,7 @@ async def get_graph():
 
             await m.download_media(path)
 
-            print("GRAPH SAVED:", path)
+            print("GRAPH SAVED")
 
             return path
 
@@ -277,8 +295,6 @@ async def main():
 
     if not path:
 
-        print("NO GRAPH")
-
         return
 
     new_hash = hashlib.md5(open(path,"rb").read()).hexdigest()
@@ -287,19 +303,7 @@ async def main():
 
     print("HASH:", new_hash)
 
-    if old_hash is None:
-
-        print("FIRST RUN")
-
-        send_photo(path)
-
-        save_state(new_hash)
-
-        return
-
-    if new_hash != old_hash:
-
-        print("GRAPH CHANGED")
+    if old_hash != new_hash:
 
         send_photo(path)
 
