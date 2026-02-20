@@ -12,13 +12,16 @@ from PIL import Image
 from telethon import TelegramClient
 
 
+# CONFIG
+
 api_id = 37132117
 api_hash = "03e024f62a62ecd99bda067e6a2d1824"
 
 BOT_TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
 CHAT_ID = "-1003856095678"
 
-DTEK_BOT = "@DTEKKyivRegionElektромerezhiBot"
+# ВАЖЛИВО — тільки латиниця
+DTEK_BOT = "@DTEKKyivRegionElektromerezhiBot"
 
 QUEUE = "1.2"
 
@@ -39,7 +42,7 @@ def save_state(s):
     open(STATE_FILE, "w").write(s)
 
 
-# ===== CROP COPY (НЕ ЧІПАЄ ОРИГІНАЛ) =====
+# CROP COPY (не чіпає оригінал)
 
 def crop_graph(original_path):
 
@@ -54,7 +57,7 @@ def crop_graph(original_path):
     return crop_path
 
 
-# ===== MERGE =====
+# MERGE
 
 def merge(minutes):
 
@@ -85,7 +88,7 @@ def merge(minutes):
     ]
 
 
-# ===== FIND DAY ROW =====
+# FIND DAY ROW
 
 def find_day_row(arr):
 
@@ -99,7 +102,7 @@ def find_day_row(arr):
     return None
 
 
-# ===== READ DAY =====
+# READ DAY
 
 def read_day(arr, y):
 
@@ -133,7 +136,7 @@ def read_day(arr, y):
     return merge(off)
 
 
-# ===== READ GRAPH =====
+# READ GRAPH
 
 def read_graph(original_path):
 
@@ -153,7 +156,7 @@ def read_graph(original_path):
     return today, tomorrow
 
 
-# ===== BUILD TEXT =====
+# BUILD TEXT
 
 def build_caption(original_path):
 
@@ -173,7 +176,7 @@ def build_caption(original_path):
     return text
 
 
-# ===== SEND ORIGINAL PHOTO =====
+# SEND ORIGINAL PHOTO
 
 def send_photo(original_path):
 
@@ -193,7 +196,7 @@ def send_photo(original_path):
         )
 
 
-# ===== GET GRAPH =====
+# GET GRAPH
 
 async def get_graph():
 
@@ -238,7 +241,7 @@ async def get_graph():
     return None
 
 
-# ===== MAIN =====
+# MAIN
 
 async def main():
 
