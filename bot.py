@@ -7,10 +7,12 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageEnhance
 
 from telethon import TelegramClient
 
+
+# ================= CONFIG =================
 
 api_id = 37132117
 api_hash = "03e024f62a62ecd99bda067e6a2d1824"
@@ -25,21 +27,28 @@ QUEUE = "1.2"
 STATE_FILE = "state.txt"
 
 
+# ================= TIME =================
+
 def now():
     return datetime.now(ZoneInfo("Europe/Kyiv"))
 
 
+# ================= STATE =================
+
 def load_state():
+
     if not os.path.exists(STATE_FILE):
         return None
+
     return open(STATE_FILE).read().strip()
 
 
 def save_state(s):
+
     open(STATE_FILE, "w").write(s)
 
 
-# ================= CROP COPY =================
+# ================= CROP =================
 
 def crop_graph(original):
 
@@ -47,11 +56,30 @@ def crop_graph(original):
 
     cropped = img.crop((0, 0, 1014, 411))
 
-    path = "graph_crop.jpg"
+    path = "graph_crop.png"
 
     cropped.save(path)
 
     return path
+
+
+# ================= MONOCHROME =================
+
+def to_monochrome(path):
+
+    img = Image.open(path).convert("L")
+
+    enhancer = ImageEnhance.Contrast(img)
+
+    img = enhancer.enhance(2.0)
+
+    arr = np.array(img)
+
+    mono = np.where(arr < 160, 0, 255).astype(np.uint8)
+
+    Image.fromarray(mono).save("graph_mono.png")
+
+    return mono
 
 
 # ================= FIND LAST LINE =================
@@ -60,22 +88,25 @@ def find_last_vertical_line(arr):
 
     h, w = arr.shape
 
-    profile = np.sum((arr > 180) & (arr < 240), axis=0)
+    profile = np.sum(arr == 0, axis=0)
 
-    xs = np.where(profile > h * 0.3)[0]
+    xs = np.where(profile > h * 0.2)[0]
+
+    if len(xs) == 0:
+        return None
 
     return xs[-1]
 
 
-# ================= FIND DAY ROW =================
+# ================= FIND TODAY ROW =================
 
-def find_day_row(arr):
+def find_today_row(arr):
 
     h, w = arr.shape
 
-    for y in range(int(h*0.3), int(h*0.7)):
+    for y in range(int(h*0.25), int(h*0.7)):
 
-        if np.sum(arr[y] < 140) > w * 0.05:
+        if np.sum(arr[y] == 0) > w * 0.05:
             return y
 
     return None
@@ -116,29 +147,32 @@ def merge(minutes):
 
 def read_day(arr, y, last_line):
 
-    cell_width = 30  # стабільна ширина клітинки після crop
+    cell = 30
 
-    first_line = last_line - (24 * cell_width)
+    first_line = last_line - cell * 24
 
-    off = []
+    minutes = []
 
     for hour in range(24):
 
-        x1 = int(first_line + hour * cell_width)
-        x2 = int(x1 + cell_width)
+        x1 = int(first_line + hour * cell)
+        x2 = int(x1 + cell)
+
+        if x1 < 0 or x2 >= arr.shape[1]:
+            continue
 
         mid = (x1 + x2) // 2
 
-        lx = (x1 + mid) // 2
-        rx = (mid + x2) // 2
+        left_block = arr[y-4:y+4, x1:mid]
+        right_block = arr[y-4:y+4, mid:x2]
 
-        if arr[y, lx] < 160:
-            off.append(hour * 60)
+        if np.mean(left_block) < 128:
+            minutes.append(hour*60)
 
-        if arr[y, rx] < 160:
-            off.append(hour * 60 + 30)
+        if np.mean(right_block) < 128:
+            minutes.append(hour*60+30)
 
-    return merge(off)
+    return merge(minutes)
 
 
 # ================= READ GRAPH =================
@@ -147,18 +181,29 @@ def read_graph(original):
 
     crop = crop_graph(original)
 
-    img = Image.open(crop).convert("L")
+    mono = to_monochrome(crop)
 
-    arr = np.array(img)
+    last_line = find_last_vertical_line(mono)
 
-    last_line = find_last_vertical_line(arr)
+    if last_line is None:
+        return [], []
 
-    today_y = find_day_row(arr)
+    today_y = find_today_row(mono)
+
+    if today_y is None:
+        return [], []
+
+    today = read_day(mono, today_y, last_line)
 
     tomorrow_y = today_y + 60
 
-    today = read_day(arr, today_y, last_line)
-    tomorrow = read_day(arr, tomorrow_y, last_line)
+    tomorrow = []
+
+    if tomorrow_y < mono.shape[0]:
+
+        if np.sum(mono[tomorrow_y] == 0) > mono.shape[1] * 0.05:
+
+            tomorrow = read_day(mono, tomorrow_y, last_line)
 
     return today, tomorrow
 
@@ -173,17 +218,23 @@ def build_caption(original):
     text += f"Оновлено: {now().strftime('%d.%m.%Y %H:%M')}\n"
 
     if today:
+
         text += "\nСьогодні:\n"
-        text += "\n".join(today)
+
+        for t in today:
+            text += t + "\n"
 
     if tomorrow:
+
         text += "\nЗавтра:\n"
-        text += "\n".join(tomorrow)
+
+        for t in tomorrow:
+            text += t + "\n"
 
     return text
 
 
-# ================= SEND ORIGINAL =================
+# ================= SEND PHOTO =================
 
 def send_photo(original):
 
@@ -214,14 +265,17 @@ async def get_graph():
     bot = await client.get_entity(DTEK_BOT)
 
     await client.send_message(bot, "/start")
+
     await asyncio.sleep(2)
 
     await client.send_message(bot, "Графік відключень🕒")
+
     await asyncio.sleep(3)
 
     msg = await client.get_messages(bot, limit=1)
 
     if msg and msg[0].buttons:
+
         await msg[0].click(text="Наступний >")
 
     await asyncio.sleep(2)
@@ -229,6 +283,7 @@ async def get_graph():
     msg = await client.get_messages(bot, limit=1)
 
     if msg and msg[0].buttons:
+
         await msg[0].click(text="✅ Обрати")
 
     await asyncio.sleep(5)
