@@ -41,7 +41,61 @@ def save_state(s):
     open(STATE_FILE, "w").write(s)
 
 
-# ===== MERGE INTERVALS =====
+# ================= FIND COLUMNS =================
+
+def find_columns(arr):
+
+    h, w = arr.shape
+
+    # беремо горизонтальний зріз таблиці
+    y = int(h * 0.35)
+
+    row = arr[y]
+
+    # світлі лінії таблиці
+    mask = row > 200
+
+    edges = []
+
+    in_line = False
+
+    for x in range(w):
+
+        if mask[x] and not in_line:
+
+            start = x
+            in_line = True
+
+        elif not mask[x] and in_line:
+
+            end = x
+
+            if end - start > 2:
+
+                edges.append((start + end)//2)
+
+            in_line = False
+
+    columns = []
+
+    for i in range(len(edges)-1):
+
+        left = edges[i]
+        right = edges[i+1]
+
+        if right - left > 5:
+
+            columns.append((left, right))
+
+    # беремо тільки 24
+    if len(columns) >= 24:
+
+        columns = columns[:24]
+
+    return columns
+
+
+# ================= MERGE =================
 
 def merge(minutes):
 
@@ -72,86 +126,31 @@ def merge(minutes):
     ]
 
 
-# ===== FIND TABLE =====
+# ================= READ DAY =================
 
-def find_table_bounds(arr):
-
-    h, w = arr.shape
-
-    # вертикальний профіль
-    profile = np.sum(arr < 150, axis=0)
-
-    xs = np.where(profile > h * 0.01)[0]
-
-    if len(xs) == 0:
-        return None, None
-
-    left = xs[0]
-    right = xs[-1]
-
-    # знайти першу колонку точно
-    width = right - left
-    col = width // 24
-
-    left += col // 2
-    right -= col // 2
-
-    return left, right
-
-
-# ===== FIND ROWS =====
-
-def find_rows(arr, left, right):
-
-    today = None
-    tomorrow = None
-
-    for y in range(0, arr.shape[0]):
-
-        dark = np.sum(arr[y, left:right] < 150)
-
-        if dark > (right-left) * 0.15:
-
-            if today is None:
-                today = y
-
-            elif tomorrow is None and abs(y - today) > 20:
-                tomorrow = y
-                break
-
-    return today, tomorrow
-
-
-# ===== READ DAY =====
-
-def read_day(arr, y, left, right):
-
-    width = right - left
-
-    col_width = width / 24
+def read_day(arr, y, columns):
 
     off = []
 
-    for hour in range(24):
+    for hour, (left, right) in enumerate(columns):
 
-        x1 = int(left + hour * col_width)
-        x2 = int(left + (hour + 1) * col_width)
+        mid = (left + right)//2
 
-        mid = (x1 + x2) // 2
-
-        left_block = arr[y-4:y+4, x1:mid]
-        right_block = arr[y-4:y+4, mid:x2]
+        left_block = arr[y-4:y+4, left:mid]
+        right_block = arr[y-4:y+4, mid:right]
 
         if left_block.mean() < 160:
+
             off.append(hour * 60)
 
         if right_block.mean() < 160:
+
             off.append(hour * 60 + 30)
 
     return merge(off)
 
 
-# ===== READ GRAPH =====
+# ================= READ GRAPH =================
 
 def read_graph(path):
 
@@ -159,26 +158,50 @@ def read_graph(path):
 
     arr = np.array(img)
 
-    left, right = find_table_bounds(arr)
+    columns = find_columns(arr)
 
-    if left is None:
+    if len(columns) < 24:
+
+        print("COLUMNS NOT FOUND:", len(columns))
+
         return [], []
 
-    today_y, tomorrow_y = find_rows(arr, left, right)
+    # знайти рядки
+    today_y = None
+    tomorrow_y = None
+
+    for y in range(arr.shape[0]):
+
+        dark = np.sum(arr[y, columns[0][0]:columns[-1][1]] < 150)
+
+        if dark > 50:
+
+            if today_y is None:
+
+                today_y = y
+
+            elif tomorrow_y is None and abs(y - today_y) > 20:
+
+                tomorrow_y = y
+
+                break
 
     today = []
     tomorrow = []
 
     if today_y:
-        today = read_day(arr, today_y, left, right)
+        today = read_day(arr, today_y, columns)
 
     if tomorrow_y:
-        tomorrow = read_day(arr, tomorrow_y, left, right)
+        tomorrow = read_day(arr, tomorrow_y, columns)
+
+    print("TODAY:", today)
+    print("TOMORROW:", tomorrow)
 
     return today, tomorrow
 
 
-# ===== BUILD CAPTION =====
+# ================= BUILD CAPTION =================
 
 def build_caption(path):
 
@@ -204,7 +227,7 @@ def build_caption(path):
     return text
 
 
-# ===== SEND =====
+# ================= SEND =================
 
 def send_photo(path):
 
@@ -212,7 +235,7 @@ def send_photo(path):
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
 
-    with open(path, "rb") as f:
+    with open(path,"rb") as f:
 
         requests.post(
             url,
@@ -224,7 +247,7 @@ def send_photo(path):
         )
 
 
-# ===== GET GRAPH =====
+# ================= GET GRAPH =================
 
 async def get_graph():
 
@@ -275,7 +298,7 @@ async def get_graph():
     return None
 
 
-# ===== MAIN =====
+# ================= MAIN =================
 
 async def main():
 
