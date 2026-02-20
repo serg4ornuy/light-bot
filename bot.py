@@ -15,39 +15,55 @@ STATE_FILE = "state.txt"
 
 DTEK_BOT = "DTEKKyivRegionElektromerezhiBot"
 
-ADDRESS = "Богуслав, Росьова, 70"
-
 
 async def get_schedule():
 
     client = TelegramClient("session", api_id, api_hash)
-
     await client.start()
 
     bot = await client.get_entity(DTEK_BOT)
 
-    # надіслати адресу
-    await client.send_message(bot, ADDRESS)
+    await client.send_message(bot, "/start")
+    await asyncio.sleep(3)
 
-    # чекати відповідь
+    msg = await client.get_messages(bot, limit=1)
+    await msg[0].click(text="Графік відключень")
+    await asyncio.sleep(3)
+
+    msg = await client.get_messages(bot, limit=1)
+    await msg[0].click(text="Наступний >")
+    await asyncio.sleep(3)
+
+    msg = await client.get_messages(bot, limit=1)
+    await msg[0].click(text="Обрати")
     await asyncio.sleep(5)
 
-    messages = await client.get_messages(bot, limit=1)
+    msg = await client.get_messages(bot, limit=1)
 
     await client.disconnect()
 
-    return messages[0].text
+    if msg[0].photo:
+
+        file_path = "schedule.jpg"
+
+        await msg[0].download_media(file_path)
+
+        return file_path
+
+    return None
 
 
-def send_to_channel(text):
+def send_photo(file_path):
 
-    requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        data={
-            "chat_id": CHAT_ID,
-            "text": text
-        }
-    )
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+
+    with open(file_path, "rb") as photo:
+
+        requests.post(
+            url,
+            data={"chat_id": CHAT_ID},
+            files={"photo": photo}
+        )
 
 
 def load_state():
@@ -65,22 +81,26 @@ def save_state(state):
 
 async def main():
 
-    text = await get_schedule()
+    file_path = await get_schedule()
 
-    new_hash = hashlib.md5(text.encode()).hexdigest()
+    if not file_path:
+        return
+
+    with open(file_path, "rb") as f:
+        data = f.read()
+
+    new_hash = hashlib.md5(data).hexdigest()
 
     old_hash = load_state()
 
     if old_hash is None:
 
-        send_to_channel("✅ Графік отримано\n\n" + text)
-
+        send_photo(file_path)
         save_state(new_hash)
 
     elif new_hash != old_hash:
 
-        send_to_channel("⚡ Графік змінено\n\n" + text)
-
+        send_photo(file_path)
         save_state(new_hash)
 
 
