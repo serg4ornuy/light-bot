@@ -1,16 +1,13 @@
-name: Light Bot
+name: DTEK Bot
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '*/10 * * * *'
 
 jobs:
   run:
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: write
 
     steps:
 
@@ -20,10 +17,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      - uses: browser-actions/setup-chrome@v1
-
-      - uses: nanasess/setup-chromedriver@v2
-
-      - run: pip install selenium requests
+      - run: pip install telethon requests
 
       - run: python bot.py
