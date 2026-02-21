@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from telethon import TelegramClient
 
 
-# CONFIG
+# ================= CONFIG =================
 
 api_id = 37132117
 api_hash = "03e024f62a62ecd99bda067e6a2d1824"
@@ -24,7 +24,7 @@ DTEK_BOT = "DTEKKyivRegionElektromerezhiBot"
 QUEUE = "Черга 1.2"
 
 
-# GET SCHEDULE IMAGE
+# ================= GET IMAGE =================
 
 async def get_schedule():
 
@@ -36,33 +36,32 @@ async def get_schedule():
 
     print("START")
 
-    # start
     await client.send_message(bot, "/start")
     await asyncio.sleep(3)
 
-    # menu
     await client.send_message(bot, "Графік відключень🕒")
     await asyncio.sleep(3)
 
-    # next
     msg = await client.get_messages(bot, limit=1)
 
     if msg and msg[0].buttons:
+
         print("CLICK NEXT")
+
         await msg[0].click(text="Наступний >")
 
     await asyncio.sleep(3)
 
-    # select
     msg = await client.get_messages(bot, limit=1)
 
     if msg and msg[0].buttons:
+
         print("CLICK SELECT")
+
         await msg[0].click(text="✅ Обрати")
 
     await asyncio.sleep(5)
 
-    # find photo
     messages = await client.get_messages(bot, limit=5)
 
     file_path = None
@@ -84,7 +83,7 @@ async def get_schedule():
     return file_path
 
 
-# SEND PHOTO WITH TEXT
+# ================= TELEGRAM SEND =================
 
 def send_photo(path):
 
@@ -109,29 +108,44 @@ def send_photo(path):
     print(r.text)
 
 
-# STATE
+# ================= STATE =================
 
 def load_state():
 
     if not os.path.exists(STATE_FILE):
         return None
 
-    return open(STATE_FILE).read()
+    return open(STATE_FILE).read().strip()
 
 
 def save_state(state):
 
-    open(STATE_FILE, "w").write(state)
+    with open(STATE_FILE, "w") as f:
+        f.write(state)
 
 
-# MAIN
+def git_push():
+
+    os.system('git config --global user.name "github-actions"')
+    os.system('git config --global user.email "actions@github.com"')
+
+    os.system("git add state.txt")
+
+    os.system('git commit -m "update state" || exit 0')
+
+    os.system("git push")
+
+
+# ================= MAIN =================
 
 async def main():
 
     path = await get_schedule()
 
     if not path:
-        print("Фото не знайдено")
+
+        print("PHOTO NOT FOUND")
+
         return
 
     data = open(path, "rb").read()
@@ -140,27 +154,34 @@ async def main():
 
     old_hash = load_state()
 
-    print("HASH:", new_hash)
+    print("NEW HASH:", new_hash)
+    print("OLD HASH:", old_hash)
 
     if old_hash is None:
 
-        print("FIRST SEND")
+        print("FIRST RUN → SEND")
 
         send_photo(path)
 
         save_state(new_hash)
+
+        git_push()
 
     elif new_hash != old_hash:
 
-        print("GRAPH CHANGED")
+        print("GRAPH CHANGED → SEND")
 
         send_photo(path)
 
         save_state(new_hash)
+
+        git_push()
 
     else:
 
         print("NO CHANGE")
 
+
+# ================= RUN =================
 
 asyncio.run(main())
