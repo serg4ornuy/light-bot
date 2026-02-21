@@ -1,157 +1,117 @@
 import asyncio
-import os
 import hashlib
+import os
 import requests
-
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
-import cv2
-import numpy as np
 
 from telethon import TelegramClient
 
-
-# CONFIG
-
-API_ID = 37132117
-API_HASH = "03e024f62a62ecd99bda067e6a2d1824"
-
-DTEK_BOT = "@DTEKKyivRegionElektromerezhiBot"
+api_id = 37132117
+api_hash = "03e024f62a62ecd99bda067e6a2d1824"
 
 BOT_TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
-CHANNEL_ID = -1003856095678
+CHAT_ID = "-1003856095678"
 
-GRAPH_FILE = "graph.jpg"
 STATE_FILE = "state.txt"
 
-QUEUE = "Черга 1.2"
+DTEK_BOT = "DTEKKyivRegionElektromerezhiBot"
 
 
-# STATE
+async def get_schedule():
 
-def get_hash(path):
-    with open(path, "rb") as f:
-        return hashlib.md5(f.read()).hexdigest()
+    client = TelegramClient("session", api_id, api_hash)
+    await client.start()
+
+    bot = await client.get_entity(DTEK_BOT)
+
+    # start
+    await client.send_message(bot, "/start")
+    await asyncio.sleep(3)
+
+    # reply keyboard (обов'язково з emoji)
+    await client.send_message(bot, "Графік відключень🕒")
+    await asyncio.sleep(3)
+
+    # inline: Наступний >
+    msg = await client.get_messages(bot, limit=1)
+
+    if msg[0].buttons:
+        await msg[0].click(text="Наступний >")
+
+    await asyncio.sleep(3)
+
+    # inline: Обрати
+    msg = await client.get_messages(bot, limit=1)
+
+    if msg[0].buttons:
+        await msg[0].click(text="✅ Обрати")
+
+    await asyncio.sleep(5)
+
+    # знайти фото
+    messages = await client.get_messages(bot, limit=5)
+
+    file_path = None
+
+    for m in messages:
+        if m.photo:
+            file_path = "schedule.jpg"
+            await m.download_media(file_path)
+            break
+
+    await client.disconnect()
+
+    return file_path
 
 
-def load_state():
-    if not os.path.exists(STATE_FILE):
-        return ""
-    return open(STATE_FILE).read().strip()
-
-
-def save_state(h):
-    open(STATE_FILE, "w").write(h)
-
-
-# TELEGRAM SEND
-
-def send(text):
-
-    print("SENDING...")
+def send_photo(path):
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
 
-    with open(GRAPH_FILE, "rb") as f:
+    with open(path, "rb") as f:
 
-        r = requests.post(
+        requests.post(
             url,
-            data={
-                "chat_id": CHANNEL_ID,
-                "caption": text
-            },
+            data={"chat_id": CHAT_ID},
             files={"photo": f}
         )
 
-    print("STATUS:", r.status_code)
-    print(r.text)
+
+def load_state():
+
+    if not os.path.exists(STATE_FILE):
+        return None
+
+    return open(STATE_FILE).read()
 
 
-# DTEK GRAPH
+def save_state(state):
 
-async def get_graph():
+    open(STATE_FILE, "w").write(state)
 
-    async with TelegramClient("session", API_ID, API_HASH) as client:
-
-        bot = await client.get_entity(DTEK_BOT)
-
-        print("OPEN MENU")
-
-        await client.send_message(bot, "Графік відключень🕒")
-
-        await asyncio.sleep(3)
-
-        msg = await client.get_messages(bot, limit=1)
-
-        if msg and msg[0].buttons:
-
-            print("CLICK NEXT")
-
-            await msg[0].click(text="Наступний >")
-
-        await asyncio.sleep(3)
-
-        msg = await client.get_messages(bot, limit=1)
-
-        if msg and msg[0].buttons:
-
-            print("CLICK SELECT")
-
-            await msg[0].click(text="Обрати")
-
-        await asyncio.sleep(5)
-
-        msgs = await client.get_messages(bot, limit=10)
-
-        for m in msgs:
-
-            if m.photo:
-
-                await m.download_media(GRAPH_FILE)
-
-                print("GRAPH SAVED")
-
-                return True
-
-    return False
-
-
-# MAIN
 
 async def main():
 
-    print("START")
+    path = await get_schedule()
 
-    ok = await get_graph()
-
-    if not ok:
-
-        print("FAILED TO GET GRAPH")
-
+    if not path:
+        print("Фото не знайдено")
         return
 
-    h = get_hash(GRAPH_FILE)
+    data = open(path, "rb").read()
 
-    old = load_state()
+    new_hash = hashlib.md5(data).hexdigest()
 
-    print("HASH:", h)
+    old_hash = load_state()
 
-    if h == old:
+    if old_hash is None:
 
-        print("NO CHANGE")
+        send_photo(path)
+        save_state(new_hash)
 
-        return
+    elif new_hash != old_hash:
 
-    save_state(h)
-
-    now = datetime.now(ZoneInfo("Europe/Kyiv")).strftime("%d.%m.%Y %H:%M")
-
-    text = f"{QUEUE}\nОновлено: {now}"
-
-    send(text)
-
-    print("DONE")
+        send_photo(path)
+        save_state(new_hash)
 
 
 asyncio.run(main())
