@@ -2,17 +2,26 @@ name: Light Bot
 
 on:
   workflow_dispatch:
+
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/5 * * * *"   # кожні 5 хвилин
+
+
+permissions:
+  contents: write
+
 
 jobs:
-  run:
+  run-bot:
+
     runs-on: ubuntu-latest
 
     steps:
 
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        persist-credentials: true
 
     - name: Setup Python
       uses: actions/setup-python@v5
@@ -21,8 +30,18 @@ jobs:
 
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install opencv-python-headless numpy telethon requests
+        pip install telethon requests
 
     - name: Run bot
       run: python bot.py
+
+    - name: Push state.txt if changed
+      run: |
+        git config user.name "github-actions"
+        git config user.email "actions@github.com"
+
+        git add state.txt || true
+
+        git diff --cached --quiet || git commit -m "update state"
+
+        git push
