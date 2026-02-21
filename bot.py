@@ -17,7 +17,7 @@ from telethon.tl.functions.messages import GetBotCallbackAnswerRequest
 API_ID = 37132117
 API_HASH = "03e024f62a62ecd99bda067e6a2d1824"
 
-DTEK_BOT = "DTEKKyivRegionBot"
+DTEK_BOT = "@DTEKKyivRegionElektromerezhiBot"
 
 CHANNEL_ID = -1003856095678
 BOT_TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
