@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
   schedule:
-    - cron: "*/5 * * * *"   # кожні 5 хвилин
+    - cron: "*/15 * * * *"   # кожні 15 хвилин
 
 
 permissions:
@@ -35,7 +35,7 @@ jobs:
     - name: Run bot
       run: python bot.py
 
-    - name: Push state.txt if changed
+    - name: Save state.txt
       run: |
         git config user.name "github-actions"
         git config user.email "actions@github.com"
@@ -44,4 +44,4 @@ jobs:
 
         git diff --cached --quiet || git commit -m "update state"
 
-        git push
+        git push || true
