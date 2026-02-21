@@ -29,13 +29,12 @@ CROP_FILE = "graph_crop.png"
 
 QUEUE_NAME = "Черга 1.2"
 
-# твій перевірений ROI
+# ROI
 CROP_X = 0
 CROP_Y = 0
 CROP_W = 1014
 CROP_H = 411
 
-# координата рядка "Сьогодні"
 ROW_Y = 200
 ROW_HEIGHT = 40
 
@@ -43,17 +42,21 @@ ROW_HEIGHT = 40
 # ================= STATE =================
 
 def get_hash(path):
+
     with open(path, "rb") as f:
         return hashlib.md5(f.read()).hexdigest()
 
 
 def load_state():
+
     if not os.path.exists(STATE_FILE):
         return ""
+
     return open(STATE_FILE).read().strip()
 
 
 def save_state(h):
+
     open(STATE_FILE, "w").write(h)
 
 
@@ -96,14 +99,17 @@ def find_vertical_lines(mono):
         if dark > h * 0.3:
             lines.append(x)
 
-    # очистка дублювання
     clean = []
+
     prev = -100
 
     for x in lines:
+
         if x - prev > 5:
             clean.append(x)
             prev = x
+
+    print("LINES:", clean)
 
     return clean
 
@@ -120,8 +126,11 @@ def build_cells(lines):
         if x2 - x1 > 10:
             cells.append((x1, x2))
 
-    # беремо тільки останні 24
-    return cells[-24:]
+    cells = cells[-24:]
+
+    print("CELLS COUNT:", len(cells))
+
+    return cells
 
 
 # ================= ANALYSIS =================
@@ -148,6 +157,8 @@ def analyze_cells(img):
         left_dark = np.mean(left) < 200
         right_dark = np.mean(right) < 200
 
+        print(i, left_dark, right_dark)
+
         if left_dark and right_dark:
             outages.append((i, i+1))
 
@@ -156,6 +167,8 @@ def analyze_cells(img):
 
         elif right_dark:
             outages.append((i+0.5, i+1))
+
+    print("OUTAGES RAW:", outages)
 
     return merge_intervals(outages)
 
@@ -177,6 +190,8 @@ def merge_intervals(intervals):
             merged[-1] = (ps, max(pe, e))
         else:
             merged.append((s, e))
+
+    print("OUTAGES MERGED:", merged)
 
     return merged
 
@@ -202,11 +217,14 @@ def format_intervals(intervals):
 
 def send_to_channel(text):
 
+    print("SENDING TO TELEGRAM...")
+    print(text)
+
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
 
     with open(GRAPH_FILE, "rb") as f:
 
-        requests.post(
+        r = requests.post(
             url,
             data={
                 "chat_id": CHANNEL_ID,
@@ -215,26 +233,35 @@ def send_to_channel(text):
             files={"photo": f}
         )
 
+    print("TELEGRAM STATUS:", r.status_code)
+    print("TELEGRAM RESPONSE:", r.text)
+
 
 # ================= DTEK =================
 
 async def get_graph():
 
+    print("CONNECTING TO DTEK...")
+
     async with TelegramClient("session", API_ID, API_HASH) as client:
 
         bot = await client.get_entity(DTEK_BOT)
 
+        print("OPEN BOT OK")
+
         await client.send_message(bot, "Графік відключень")
 
-        await asyncio.sleep(3)
+        await asyncio.sleep(5)
 
-        msgs = await client.get_messages(bot, limit=5)
+        msgs = await client.get_messages(bot, limit=10)
 
         for msg in msgs:
 
             if msg.photo:
 
                 await msg.download_media(GRAPH_FILE)
+
+                print("GRAPH DOWNLOADED")
 
                 return True
 
@@ -249,23 +276,34 @@ async def main():
 
     ok = await get_graph()
 
+    print("GRAPH RECEIVED:", ok)
+
     if not ok:
-        print("NO GRAPH")
+        print("STOP: NO GRAPH")
         return
 
     h = get_hash(GRAPH_FILE)
 
-    if h == load_state():
-        print("NO CHANGE")
+    old = load_state()
+
+    print("HASH:", h)
+    print("OLD HASH:", old)
+
+    if h == old:
+        print("STOP: NO CHANGE")
         return
 
     save_state(h)
 
     img = crop_graph()
 
+    print("IMAGE CROPPED")
+
     intervals = analyze_cells(img)
 
     times = format_intervals(intervals)
+
+    print("INTERVALS TEXT:", times)
 
     now = datetime.now(ZoneInfo("Europe/Kyiv")).strftime("%d.%m.%Y %H:%M")
 
