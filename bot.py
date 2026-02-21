@@ -2,44 +2,47 @@ import asyncio
 import os
 import hashlib
 import requests
-from datetime import datetime, timedelta
+
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import cv2
 import numpy as np
 
 from telethon import TelegramClient
-from telethon.tl.functions.messages import GetBotCallbackAnswerRequest
 
-# =========================
-# CONFIG
-# =========================
+
+# ================= CONFIG =================
 
 API_ID = 37132117
 API_HASH = "03e024f62a62ecd99bda067e6a2d1824"
 
 DTEK_BOT = "@DTEKKyivRegionElektromerezhiBot"
 
-CHANNEL_ID = -1003856095678
 BOT_TOKEN = "8459715913:AAGmSdLh1HGd0j1vsMj-7tHwT6jzqsAqgzs"
+CHANNEL_ID = -1003856095678
+
+STATE_FILE = "state.txt"
 
 GRAPH_FILE = "graph.jpg"
 CROP_FILE = "graph_crop.png"
-STATE_FILE = "state.txt"
 
-QUEUE = "Черга 1.2"
+QUEUE_NAME = "Черга 1.2"
 
-# crop area (твій перевірений ROI)
+# твій перевірений ROI
 CROP_X = 0
 CROP_Y = 0
 CROP_W = 1014
 CROP_H = 411
 
+# координата рядка "Сьогодні"
+ROW_Y = 200
+ROW_HEIGHT = 40
 
-# =========================
-# UTILS
-# =========================
 
-def file_hash(path):
+# ================= STATE =================
+
+def get_hash(path):
     with open(path, "rb") as f:
         return hashlib.md5(f.read()).hexdigest()
 
@@ -54,31 +57,46 @@ def save_state(h):
     open(STATE_FILE, "w").write(h)
 
 
+# ================= IMAGE =================
+
 def crop_graph():
+
     img = cv2.imread(GRAPH_FILE)
+
     crop = img[CROP_Y:CROP_Y+CROP_H, CROP_X:CROP_X+CROP_W]
+
     cv2.imwrite(CROP_FILE, crop)
+
     return crop
 
 
-# =========================
-# GRID DETECTION
-# =========================
-
-def find_vertical_lines(img):
+def to_monochrome(img):
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
+    _, mono = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+
+    return mono
+
+
+# ================= GRID =================
+
+def find_vertical_lines(mono):
+
+    h, w = mono.shape
+
     lines = []
 
-    for x in range(gray.shape[1]):
-        col = gray[:, x]
-        dark = np.sum(col < 80)
+    for x in range(w):
 
-        if dark > gray.shape[0] * 0.3:
+        col = mono[:, x]
+
+        dark = np.sum(col == 0)
+
+        if dark > h * 0.3:
             lines.append(x)
 
-    # remove duplicates
+    # очистка дублювання
     clean = []
     prev = -100
 
@@ -90,62 +108,54 @@ def find_vertical_lines(img):
     return clean
 
 
-def get_cells(lines):
+def build_cells(lines):
 
     cells = []
 
     for i in range(len(lines)-1):
+
         x1 = lines[i]
         x2 = lines[i+1]
 
         if x2 - x1 > 10:
             cells.append((x1, x2))
 
-    return cells
+    # беремо тільки останні 24
+    return cells[-24:]
 
 
-# =========================
-# CELL ANALYSIS
-# =========================
+# ================= ANALYSIS =================
 
-def analyze_row(img, y):
+def analyze_cells(img):
 
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    mono = to_monochrome(img)
 
-    lines = find_vertical_lines(img)
+    lines = find_vertical_lines(mono)
 
-    cells = get_cells(lines)
-
-    if len(cells) < 24:
-        return []
-
-    cells = cells[-24:]
+    cells = build_cells(lines)
 
     outages = []
 
     for i, (x1, x2) in enumerate(cells):
 
-        cell = gray[y:y+40, x1:x2]
+        cell = mono[ROW_Y:ROW_Y+ROW_HEIGHT, x1:x2]
 
         w = cell.shape[1]
 
         left = cell[:, :w//2]
         right = cell[:, w//2:]
 
-        left_mean = np.mean(left)
-        right_mean = np.mean(right)
+        left_dark = np.mean(left) < 200
+        right_dark = np.mean(right) < 200
 
-        start = i
-        end = i+1
+        if left_dark and right_dark:
+            outages.append((i, i+1))
 
-        if left_mean < 200 and right_mean < 200:
-            outages.append((start, end))
+        elif left_dark:
+            outages.append((i, i+0.5))
 
-        elif left_mean < 200:
-            outages.append((start, start+0.5))
-
-        elif right_mean < 200:
-            outages.append((start+0.5, end))
+        elif right_dark:
+            outages.append((i+0.5, i+1))
 
     return merge_intervals(outages)
 
@@ -173,7 +183,7 @@ def merge_intervals(intervals):
 
 def format_intervals(intervals):
 
-    out = []
+    result = []
 
     for s, e in intervals:
 
@@ -183,14 +193,12 @@ def format_intervals(intervals):
         eh = int(e)
         em = int((e % 1) * 60)
 
-        out.append(f"{sh:02d}:{sm:02d}–{eh:02d}:{em:02d}")
+        result.append(f"{sh:02d}:{sm:02d}–{eh:02d}:{em:02d}")
 
-    return out
+    return result
 
 
-# =========================
-# TELEGRAM SEND
-# =========================
+# ================= TELEGRAM =================
 
 def send_to_channel(text):
 
@@ -198,19 +206,17 @@ def send_to_channel(text):
 
     with open(GRAPH_FILE, "rb") as f:
 
-        files = {"photo": f}
+        requests.post(
+            url,
+            data={
+                "chat_id": CHANNEL_ID,
+                "caption": text
+            },
+            files={"photo": f}
+        )
 
-        data = {
-            "chat_id": CHANNEL_ID,
-            "caption": text
-        }
 
-        requests.post(url, data=data, files=files)
-
-
-# =========================
-# GET GRAPH FROM DTEK
-# =========================
+# ================= DTEK =================
 
 async def get_graph():
 
@@ -220,7 +226,7 @@ async def get_graph():
 
         await client.send_message(bot, "Графік відключень")
 
-        await asyncio.sleep(2)
+        await asyncio.sleep(3)
 
         msgs = await client.get_messages(bot, limit=5)
 
@@ -228,30 +234,28 @@ async def get_graph():
 
             if msg.photo:
 
-                path = await msg.download_media(GRAPH_FILE)
+                await msg.download_media(GRAPH_FILE)
 
-                return path
+                return True
+
+    return False
 
 
-# =========================
-# MAIN
-# =========================
+# ================= MAIN =================
 
 async def main():
 
     print("START")
 
-    path = await get_graph()
+    ok = await get_graph()
 
-    if not path:
+    if not ok:
         print("NO GRAPH")
         return
 
-    h = file_hash(path)
+    h = get_hash(GRAPH_FILE)
 
-    old = load_state()
-
-    if h == old:
+    if h == load_state():
         print("NO CHANGE")
         return
 
@@ -259,29 +263,26 @@ async def main():
 
     img = crop_graph()
 
-    today_y = 200
-    tomorrow_y = 243
+    intervals = analyze_cells(img)
 
-    today = format_intervals(analyze_row(img, today_y))
-    tomorrow = format_intervals(analyze_row(img, tomorrow_y))
+    times = format_intervals(intervals)
 
-    now = datetime.now().strftime("%d.%m.%Y %H:%M")
+    now = datetime.now(ZoneInfo("Europe/Kyiv")).strftime("%d.%m.%Y %H:%M")
 
-    text = f"{QUEUE}\nОновлено: {now}\n\n"
+    text = f"{QUEUE_NAME}\n"
+    text += f"Оновлено: {now}\n\n"
 
-    if today:
+    if times:
         text += "Сьогодні:\n"
-        text += "\n".join(today)
-
-    if tomorrow:
-        text += "\n\nЗавтра:\n"
-        text += "\n".join(tomorrow)
+        text += "\n".join(times)
+    else:
+        text += "Світло є весь день"
 
     send_to_channel(text)
 
     print("DONE")
 
 
-# =========================
+# ================= RUN =================
 
 asyncio.run(main())
