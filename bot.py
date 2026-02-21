@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from telethon import TelegramClient
 
 
-# ================= CONFIG =================
+# CONFIG
 
 api_id = 37132117
 api_hash = "03e024f62a62ecd99bda067e6a2d1824"
@@ -24,7 +24,49 @@ DTEK_BOT = "DTEKKyivRegionElektromerezhiBot"
 QUEUE = "Черга 1.2"
 
 
-# ================= GET IMAGE =================
+# STATE
+
+def load_state():
+
+    if not os.path.exists(STATE_FILE):
+
+        print("STATE FILE NOT FOUND")
+
+        return None
+
+    with open(STATE_FILE, "r") as f:
+
+        data = f.read().strip()
+
+        print("STATE LOADED:", data)
+
+        return data
+
+
+def save_state(state):
+
+    print("SAVING STATE:", state)
+
+    with open(STATE_FILE, "w") as f:
+
+        f.write(state)
+
+
+def git_push():
+
+    print("PUSH STATE TO GITHUB")
+
+    os.system('git config --global user.name "github-actions"')
+    os.system('git config --global user.email "actions@github.com"')
+
+    os.system("git add state.txt")
+
+    os.system('git commit -m "update state" || exit 0')
+
+    os.system("git push")
+
+
+# GET IMAGE
 
 async def get_schedule():
 
@@ -34,7 +76,7 @@ async def get_schedule():
 
     bot = await client.get_entity(DTEK_BOT)
 
-    print("START")
+    print("OPEN BOT")
 
     await client.send_message(bot, "/start")
     await asyncio.sleep(3)
@@ -83,7 +125,7 @@ async def get_schedule():
     return file_path
 
 
-# ================= TELEGRAM SEND =================
+# SEND PHOTO
 
 def send_photo(path):
 
@@ -108,35 +150,7 @@ def send_photo(path):
     print(r.text)
 
 
-# ================= STATE =================
-
-def load_state():
-
-    if not os.path.exists(STATE_FILE):
-        return None
-
-    return open(STATE_FILE).read().strip()
-
-
-def save_state(state):
-
-    with open(STATE_FILE, "w") as f:
-        f.write(state)
-
-
-def git_push():
-
-    os.system('git config --global user.name "github-actions"')
-    os.system('git config --global user.email "actions@github.com"')
-
-    os.system("git add state.txt")
-
-    os.system('git commit -m "update state" || exit 0')
-
-    os.system("git push")
-
-
-# ================= MAIN =================
+# MAIN
 
 async def main():
 
@@ -144,7 +158,7 @@ async def main():
 
     if not path:
 
-        print("PHOTO NOT FOUND")
+        print("NO PHOTO")
 
         return
 
@@ -152,14 +166,13 @@ async def main():
 
     new_hash = hashlib.md5(data).hexdigest()
 
-    old_hash = load_state()
-
     print("NEW HASH:", new_hash)
-    print("OLD HASH:", old_hash)
+
+    old_hash = load_state()
 
     if old_hash is None:
 
-        print("FIRST RUN → SEND")
+        print("FIRST RUN")
 
         send_photo(path)
 
@@ -169,7 +182,7 @@ async def main():
 
     elif new_hash != old_hash:
 
-        print("GRAPH CHANGED → SEND")
+        print("GRAPH CHANGED")
 
         send_photo(path)
 
@@ -181,7 +194,5 @@ async def main():
 
         print("NO CHANGE")
 
-
-# ================= RUN =================
 
 asyncio.run(main())
