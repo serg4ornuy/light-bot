@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
   schedule:
-    - cron: "*/15 * * * *"   # кожні 15 хвилин
+    - cron: "*/20 * * * *"   # кожні 20 хвилин
 
 
 permissions:
