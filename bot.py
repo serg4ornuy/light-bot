@@ -78,22 +78,13 @@ async def get_schedule():
 
     print("OPEN BOT")
 
-    await client.send_message(bot, "☰ Меню")
+    await client.send_message(bot, "Меню")
     await asyncio.sleep(3)
 
     await client.send_message(bot, "Графік відключень🕒")
     await asyncio.sleep(3)
 
-    msg = await client.get_messages(bot, limit=1)
-
-    if msg and msg[0].buttons:
-
-        print("CLICK NEXT")
-
-        await msg[0].click(text="Наступний >")
-
-    await asyncio.sleep(3)
-
+    # одразу шукаємо кнопку Обрати
     msg = await client.get_messages(bot, limit=1)
 
     if msg and msg[0].buttons:
