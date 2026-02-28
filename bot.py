@@ -78,7 +78,7 @@ async def get_schedule():
 
     print("OPEN BOT")
 
-    await client.send_message(bot, "Меню")
+    await client.send_message(bot, "☰ Меню")
     await asyncio.sleep(3)
 
     await client.send_message(bot, "Графік відключень🕒")
